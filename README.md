@@ -1,94 +1,170 @@
-# Obsidian Sample Plugin
+# Notes Analytics Plugin for Obsidian
 
-This is a sample plugin for Obsidian (https://obsidian.md).
+A comprehensive analytics plugin for Obsidian that provides insights into your note-taking patterns and writing productivity.
 
-This project uses TypeScript to provide type checking and documentation.
-The repo depends on the latest plugin API (obsidian.d.ts) in TypeScript Definition format, which contains TSDoc comments describing what it does.
+## Features
 
-This sample plugin demonstrates some of the basic functionality the plugin API can do.
-- Adds a ribbon icon, which shows a Notice when clicked.
-- Adds a command "Open Sample Modal" which opens a Modal.
-- Adds a plugin setting tab to the settings page.
-- Registers a global click event and output 'click' to the console.
-- Registers a global interval which logs 'setInterval' to the console.
+### 📈 File Creation History
+- Track when files were created over days, months, and years
+- View detailed timeline of your note creation patterns
+- See file creation trends and productivity insights
+- Individual file word counts for each creation date
 
-## First time developing plugins?
+### 📊 Advanced Word Count Analytics
+- Monitor word count growth over time with enhanced statistics
+- Filter analytics by day, month, or year
+- Track total words written and average words per file
+- View cumulative word count progression
+- Analyze productivity statistics and writing trends
 
-Quick starting guide for new plugin devs:
+### 🎯 Enhanced Dashboard Overview
+- Comprehensive summary with key statistics
+- Writing streak tracking - see how many consecutive days you've written
+- Most productive day identification
+- Oldest and newest file tracking
+- Real-time status bar updates
+- Easy access to different analytics views
 
-- Check if [someone already developed a plugin for what you want](https://obsidian.md/plugins)! There might be an existing plugin similar enough that you can partner up with.
-- Make a copy of this repo as a template with the "Use this template" button (login to GitHub if you don't see it).
-- Clone your repo to a local development folder. For convenience, you can place this folder in your `.obsidian/plugins/your-plugin-name` folder.
-- Install NodeJS, then run `npm i` in the command line under your repo folder.
-- Run `npm run dev` to compile your plugin from `main.ts` to `main.js`.
-- Make changes to `main.ts` (or create new `.ts` files). Those changes should be automatically compiled into `main.js`.
-- Reload Obsidian to load the new version of your plugin.
-- Enable plugin in settings window.
-- For updates to the Obsidian API run `npm update` in the command line under your repo folder.
+### ⚙️ Customizable Settings
+- Enable/disable real-time updates for better performance
+- Toggle advanced statistics display
+- Customizable date formats
+- Individual feature toggles for file history and word count tracking
 
-## Releasing new releases
+## Usage
 
-- Update your `manifest.json` with your new version number, such as `1.0.1`, and the minimum Obsidian version required for your latest release.
-- Update your `versions.json` file with `"new-plugin-version": "minimum-obsidian-version"` so older versions of Obsidian can download an older version of your plugin that's compatible.
-- Create new GitHub release using your new version number as the "Tag version". Use the exact version number, don't include a prefix `v`. See here for an example: https://github.com/obsidianmd/obsidian-sample-plugin/releases
-- Upload the files `manifest.json`, `main.js`, `styles.css` as binary attachments. Note: The manifest.json file must be in two places, first the root path of your repository and also in the release.
-- Publish the release.
+### Accessing Analytics
+1. **Ribbon Icon**: Click the bar chart icon in the left ribbon
+2. **Command Palette**: Use "Open Notes Analytics" command
+3. **Specific Views**: 
+   - "Show File Creation History" - View file creation timeline
+   - "Show Word Count Analytics" - View word count trends
 
-> You can simplify the version bump process by running `npm version patch`, `npm version minor` or `npm version major` after updating `minAppVersion` manually in `manifest.json`.
-> The command will bump version in `manifest.json` and `package.json`, and add the entry for the new version to `versions.json`
+### Analytics Views
 
-## Adding your plugin to the community plugin list
+#### File Creation History
+Shows a chronological view of when your files were created, grouped by date. Each entry displays:
+- File path
+- Creation date
+- Estimated word count
 
-- Check the [plugin guidelines](https://docs.obsidian.md/Plugins/Releasing/Plugin+guidelines).
-- Publish an initial version.
-- Make sure you have a `README.md` file in the root of your repo.
-- Make a pull request at https://github.com/obsidianmd/obsidian-releases to add your plugin.
+#### Word Count Analytics
+Provides comprehensive statistical analysis of your writing patterns with:
+- Selectable time frames (daily, monthly, yearly)
+- Files created per period
+- Total words written in each period
+- Average words per file
+- Cumulative word count progression (when advanced stats are enabled)
+- Writing productivity trends over time
 
-## How to use
+### Status Bar
+The status bar shows real-time information:
+- Total number of markdown files
+- Total estimated word count (updates automatically when real-time updates are enabled)
 
-- Clone this repo.
-- Make sure your NodeJS is at least v16 (`node --version`).
-- `npm i` or `yarn` to install dependencies.
-- `npm run dev` to start compilation in watch mode.
+## Settings
 
-## Manually installing the plugin
+Configure the plugin behavior in Settings > Notes Analytics:
 
-- Copy over `main.js`, `styles.css`, `manifest.json` to your vault `VaultFolder/.obsidian/plugins/your-plugin-id/`.
+- **Show File Creation History**: Enable/disable file creation tracking
+- **Show Word Count Tracking**: Enable/disable word count analytics
+- **Enable Real-time Updates**: Update status bar and analytics automatically when files change
+- **Show Advanced Statistics**: Display cumulative word counts, writing streaks, and additional analytics
+- **Date Format**: Customize date display format (uses moment.js format)
 
-## Improve code quality with eslint (optional)
-- [ESLint](https://eslint.org/) is a tool that analyzes your code to quickly find problems. You can run ESLint against your plugin to find common bugs and ways to improve your code. 
-- To use eslint with this project, make sure to install eslint from terminal:
-  - `npm install -g eslint`
-- To use eslint to analyze this project use this command:
-  - `eslint main.ts`
-  - eslint will then create a report with suggestions for code improvement by file and line number.
-- If your source code is in a folder, such as `src`, you can use eslint with this command to analyze all files in that folder:
-  - `eslint .\src\`
+## Installation
 
-## Funding URL
+### Manual Installation
+1. Download the latest release files (`main.js`, `styles.css`, `manifest.json`)
+2. Create a folder `YourVault/.obsidian/plugins/obsidian-notes-analytics/`
+3. Copy the downloaded files into this folder
+4. Reload Obsidian and enable the plugin in Settings > Community Plugins
 
-You can include funding URLs where people who use your plugin can financially support it.
+### Development Installation
+1. Clone this repository into your vault's plugins folder:
+   ```bash
+   cd YourVault/.obsidian/plugins/
+   git clone https://github.com/soumendrak/obsidian-notes-analytics.git
+   ```
+2. Navigate to the plugin folder and install dependencies:
+   ```bash
+   cd obsidian-notes-analytics
+   npm install
+   ```
+3. Build the plugin:
+   ```bash
+   npm run build
+   ```
+4. Enable the plugin in Obsidian settings
 
-The simple way is to set the `fundingUrl` field to your link in your `manifest.json` file:
+## Development
 
-```json
-{
-    "fundingUrl": "https://buymeacoffee.com"
-}
+### Prerequisites
+- Node.js (v16 or higher)
+- npm or yarn
+
+### Building
+```bash
+# Install dependencies
+npm install
+
+# Development build with watch mode
+npm run dev
+
+# Production build
+npm run build
 ```
 
-If you have multiple URLs, you can also do:
+### Project Structure
+- `main.ts` - Main plugin code with analytics functionality
+- `styles.css` - Plugin styling
+- `manifest.json` - Plugin metadata
+- `esbuild.config.mjs` - Build configuration
 
-```json
-{
-    "fundingUrl": {
-        "Buy Me a Coffee": "https://buymeacoffee.com",
-        "GitHub Sponsor": "https://github.com/sponsors",
-        "Patreon": "https://www.patreon.com/"
-    }
-}
-```
+## Technical Details
 
-## API Documentation
+### Word Count Calculation
+The plugin reads file contents to provide accurate word count calculation. For performance optimization, the status bar uses an estimation based on file size, while detailed analytics use exact word counts from file contents.
 
-See https://github.com/obsidianmd/obsidian-api
+### Data Sources
+- File creation times from Obsidian's file system API
+- File statistics and content for accurate word count calculation
+- Real-time vault monitoring for updates (when enabled)
+
+### Performance Features
+- Debounced updates to prevent excessive calculations
+- Optional real-time updates that can be disabled for better performance
+- Efficient caching of analytics data
+
+## Roadmap
+
+Planned features for future releases:
+- [ ] Chart visualizations for analytics data (line charts, bar charts)
+- [ ] Export analytics data to CSV/JSON formats
+- [ ] More detailed writing streak tracking with streak history
+- [ ] Integration with daily notes for better insights
+- [ ] Custom date ranges for analytics (e.g., last 30 days, custom periods)
+- [ ] File size analytics and growth tracking
+- [ ] Tags and folder-based analytics filtering
+- [ ] Writing goals and progress tracking
+- [ ] Comparison views (this month vs last month)
+- [ ] Heatmap calendar view of writing activity
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit issues, feature requests, or pull requests.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Support
+
+If you find this plugin helpful, consider:
+- ⭐ Starring the repository
+- 🐛 Reporting bugs or requesting features
+- 💡 Contributing to the codebase
+
+## Acknowledgments
+
+Built using the Obsidian Plugin API and inspired by the need for better writing analytics in note-taking workflows.
