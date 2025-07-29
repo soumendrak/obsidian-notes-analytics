@@ -139,10 +139,10 @@ Planned features for future releases:
 - [x] Code refactoring and modularization ✅ **COMPLETED**
 - [x] More detailed writing streak tracking with streak history ✅ **COMPLETED**
 - [x] Interactive chart tooltips and data point details ✅ **COMPLETED**
-- [ ] File size analytics and growth tracking
-- [ ] Tags and folder-based analytics filtering
+- [x] File size analytics and growth tracking ✅ **COMPLETED**
+- [x] Tags and folder-based analytics filtering ✅ **COMPLETED**
+- [x] Writing goals and progress tracking ✅ **COMPLETED**
 - [ ] Integration with daily notes for better insights
-- [ ] Writing goals and progress tracking
 - [ ] Comparison views (this month vs last month)
 - [ ] Heatmap calendar view of writing activity
 - [ ] Chart animation and transition effects

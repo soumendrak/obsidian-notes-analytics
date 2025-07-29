@@ -7,6 +7,9 @@ interface NotesAnalyticsSettings {
 	defaultChartType: 'line' | 'bar' | 'area' | 'pie';
 	enableChartExport: boolean;
 	enableCustomDateRange: boolean;
+	dailyWordGoal: number;
+	weeklyFileGoal: number;
+	monthlyWordGoal: number;
 }
 
 const DEFAULT_SETTINGS: NotesAnalyticsSettings = {
@@ -15,7 +18,10 @@ const DEFAULT_SETTINGS: NotesAnalyticsSettings = {
 	showAdvancedStats: true,
 	defaultChartType: 'line',
 	enableChartExport: true,
-	enableCustomDateRange: true
+	enableCustomDateRange: true,
+	dailyWordGoal: 500,
+	weeklyFileGoal: 7,
+	monthlyWordGoal: 15000
 }
 
 interface WordCountData {
@@ -25,6 +31,13 @@ interface WordCountData {
 	avgWordsPerFile: number;
 	cumulativeWords: number;
 	cumulativeFiles: number;
+}
+
+interface FileSizeData {
+	fileName: string;
+	size: number;
+	sizeFormatted: string;
+	category: 'small' | 'medium' | 'large' | 'very-large';
 }
 
 // Chart utilities for data visualization
@@ -569,6 +582,188 @@ export default class NotesAnalyticsPlugin extends Plugin {
 		}
 	}
 
+	private formatBytes(bytes: number): string {
+		if (bytes === 0) return '0 B';
+		const k = 1024;
+		const sizes = ['B', 'KB', 'MB', 'GB'];
+		const i = Math.floor(Math.log(bytes) / Math.log(k));
+		return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+	}
+
+	private categorizeFileSize(bytes: number): 'small' | 'medium' | 'large' | 'very-large' {
+		if (bytes < 10 * 1024) return 'small';        // < 10KB
+		if (bytes < 100 * 1024) return 'medium';      // 10KB - 100KB
+		if (bytes < 1024 * 1024) return 'large';      // 100KB - 1MB
+		return 'very-large';                          // > 1MB
+	}
+
+	async getFileSize(file: TFile): Promise<number> {
+		try {
+			const content = await this.app.vault.read(file);
+			return new Blob([content]).size;
+		} catch (error) {
+			return file.stat.size || 0;
+		}
+	}
+
+	async getFileSizeDistribution(): Promise<{ label: string; value: number }[]> {
+		const files = this.app.vault.getMarkdownFiles();
+		const categories = { small: 0, medium: 0, large: 0, 'very-large': 0 };
+
+		for (const file of files) {
+			const size = await this.getFileSize(file);
+			const category = this.categorizeFileSize(size);
+			categories[category]++;
+		}
+
+		return [
+			{ label: 'Small (<10KB)', value: categories.small },
+			{ label: 'Medium (10-100KB)', value: categories.medium },
+			{ label: 'Large (100KB-1MB)', value: categories.large },
+			{ label: 'Very Large (>1MB)', value: categories['very-large'] }
+		].filter(item => item.value > 0);
+	}
+
+	async getLargestFiles(limit: number = 10): Promise<{ label: string; value: number }[]> {
+		const files = this.app.vault.getMarkdownFiles();
+		const fileSizes: { name: string; size: number }[] = [];
+
+		for (const file of files) {
+			const size = await this.getFileSize(file);
+			fileSizes.push({ name: file.name, size });
+		}
+
+		return fileSizes
+			.sort((a, b) => b.size - a.size)
+			.slice(0, limit)
+			.map(file => ({
+				label: file.name.length > 20 ? file.name.substring(0, 17) + '...' : file.name,
+				value: file.size
+			}));
+	}
+
+	async getFileSizeGrowthTrends(): Promise<{ label: string; value: number }[]> {
+		const files = this.app.vault.getMarkdownFiles();
+		const growthCategories = { 'Growing': 0, 'Stable': 0, 'Shrinking': 0 };
+		
+		// Get files modified in the last 30 days
+		const thirtyDaysAgo = new Date();
+		thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+		
+		for (const file of files) {
+			if (file.stat.mtime > thirtyDaysAgo.getTime()) {
+				// Simulate growth classification based on modification frequency and size
+				const size = await this.getFileSize(file);
+				const modificationDays = Math.floor((Date.now() - file.stat.mtime) / (1000 * 60 * 60 * 24));
+				
+				// Simple heuristic: classify based on size and recent modification
+				if (size > 50 * 1024 && modificationDays < 7) { // Large files modified recently = growing
+					growthCategories['Growing']++;
+				} else if (size < 10 * 1024 || modificationDays > 14) { // Small files or old modifications = stable/shrinking
+					growthCategories['Stable']++;
+				} else {
+					growthCategories['Shrinking']++;
+				}
+			}
+		}
+
+		return Object.entries(growthCategories)
+			.filter(([_, count]) => count > 0)
+			.map(([trend, count]) => ({ label: trend, value: count }));
+	}
+
+	async getTagAnalytics(): Promise<{ label: string; value: number }[]> {
+		const files = this.app.vault.getMarkdownFiles();
+		const tagCounts = new Map<string, number>();
+
+		for (const file of files) {
+			try {
+				const content = await this.app.vault.read(file);
+				// Extract tags using regex (both #tag and [[tag]] formats)
+				const tagMatches = content.match(/#[\w\-_]+/g) || [];
+				const wikiTagMatches = content.match(/\[\[([^\]]+)\]\]/g) || [];
+				
+				// Process hashtags
+				tagMatches.forEach(tag => {
+					const cleanTag = tag.substring(1); // Remove #
+					tagCounts.set(cleanTag, (tagCounts.get(cleanTag) || 0) + 1);
+				});
+
+				// Process wiki-style tags (only if they look like tags)
+				wikiTagMatches.forEach(match => {
+					const tag = match.slice(2, -2); // Remove [[ and ]]
+					if (tag.length < 30 && !tag.includes('/')) { // Basic filter for tag-like content
+						tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
+					}
+				});
+			} catch (error) {
+				// Skip files that can't be read
+				continue;
+			}
+		}
+
+		return Array.from(tagCounts.entries())
+			.sort((a, b) => b[1] - a[1])
+			.slice(0, 15) // Top 15 tags
+			.map(([tag, count]) => ({
+				label: tag.length > 20 ? tag.substring(0, 17) + '...' : tag,
+				value: count
+			}));
+	}
+
+	async getFolderAnalytics(): Promise<{ label: string; value: number }[]> {
+		const files = this.app.vault.getMarkdownFiles();
+		const folderCounts = new Map<string, number>();
+
+		files.forEach(file => {
+			const folderPath = file.path.substring(0, file.path.lastIndexOf('/'));
+			const folder = folderPath || 'Root';
+			folderCounts.set(folder, (folderCounts.get(folder) || 0) + 1);
+		});
+
+		return Array.from(folderCounts.entries())
+			.sort((a, b) => b[1] - a[1])
+			.slice(0, 10) // Top 10 folders
+			.map(([folder, count]) => ({
+				label: folder.length > 25 ? '...' + folder.substring(folder.length - 22) : folder,
+				value: count
+			}));
+	}
+
+	async getWritingGoalsProgress(): Promise<{ label: string; value: number }[]> {
+		const files = this.app.vault.getMarkdownFiles();
+		const today = moment().startOf('day');
+		const weekStart = moment().startOf('week');
+		const monthStart = moment().startOf('month');
+
+		// Daily word progress
+		let todayWords = 0;
+		const todayFiles = files.filter(file => moment(file.stat.ctime).isAfter(today));
+		for (const file of todayFiles) {
+			todayWords += await this.getWordCount(file);
+		}
+
+		// Weekly file progress
+		const weekFiles = files.filter(file => moment(file.stat.ctime).isAfter(weekStart)).length;
+
+		// Monthly word progress
+		let monthWords = 0;
+		const monthFiles = files.filter(file => moment(file.stat.ctime).isAfter(monthStart));
+		for (const file of monthFiles) {
+			monthWords += await this.getWordCount(file);
+		}
+
+		const dailyProgress = Math.min(100, (todayWords / this.settings.dailyWordGoal) * 100);
+		const weeklyProgress = Math.min(100, (weekFiles / this.settings.weeklyFileGoal) * 100);
+		const monthlyProgress = Math.min(100, (monthWords / this.settings.monthlyWordGoal) * 100);
+
+		return [
+			{ label: `Daily Words (${todayWords}/${this.settings.dailyWordGoal})`, value: Math.round(dailyProgress) },
+			{ label: `Weekly Files (${weekFiles}/${this.settings.weeklyFileGoal})`, value: Math.round(weeklyProgress) },
+			{ label: `Monthly Words (${monthWords}/${this.settings.monthlyWordGoal})`, value: Math.round(monthlyProgress) }
+		];
+	}
+
 	async getWordCountAnalyticsForDateRange(startDate: string, endDate: string, groupBy: 'day' | 'week' | 'month' = 'day'): Promise<WordCountData[]> {
 		const files = this.app.vault.getMarkdownFiles();
 		const dataMap = new Map<string, WordCountData>();
@@ -881,6 +1076,12 @@ class ChartVisualizationsModal extends Modal {
 		if (this.plugin.settings.showAdvancedStats) {
 			metricSelect.createEl('option', { value: 'cumulativeWords', text: 'Cumulative Words' });
 			metricSelect.createEl('option', { value: 'cumulativeFiles', text: 'Cumulative File Count' });
+			metricSelect.createEl('option', { value: 'fileSizeDistribution', text: 'File Size Distribution' });
+			metricSelect.createEl('option', { value: 'largestFiles', text: 'Largest Files' });
+			metricSelect.createEl('option', { value: 'fileSizeGrowth', text: 'File Size Growth Trends' });
+			metricSelect.createEl('option', { value: 'tagAnalytics', text: 'Tag Usage Analytics' });
+			metricSelect.createEl('option', { value: 'folderAnalytics', text: 'Folder Analytics' });
+			metricSelect.createEl('option', { value: 'writingGoals', text: 'Writing Goals Progress' });
 		}
 
 		// Export controls in top right
@@ -927,17 +1128,51 @@ class ChartVisualizationsModal extends Modal {
 		const updateChart = async () => {
 			const timeFrame = timeSelect.value as 'day' | 'week' | 'month' | 'year';
 			const chartType = typeSelect.value as 'line' | 'bar' | 'area' | 'pie';
-			const metric = metricSelect.value as keyof WordCountData;
+			const metric = metricSelect.value as keyof WordCountData | 'fileSizeDistribution' | 'largestFiles' | 'fileSizeGrowth' | 'tagAnalytics' | 'folderAnalytics' | 'writingGoals';
 
 			// Show loading message
 			chartContainer.empty();
 			const loadingMsg = chartContainer.createEl('p', { text: 'Loading chart...' });
 
 			try {
-				const data = await this.plugin.getWordCountAnalytics(timeFrame);
+				let chartData: { label: string; value: number }[] = [];
+
+				// Handle different metric types
+				if (metric === 'fileSizeDistribution') {
+					const fileSizeData = await this.plugin.getFileSizeDistribution();
+					chartData = fileSizeData;
+				} else if (metric === 'largestFiles') {
+					const largestFilesData = await this.plugin.getLargestFiles(10);
+					chartData = largestFilesData;
+				} else if (metric === 'fileSizeGrowth') {
+					const fileSizeGrowthData = await this.plugin.getFileSizeGrowthTrends();
+					chartData = fileSizeGrowthData;
+				} else if (metric === 'tagAnalytics') {
+					const tagData = await this.plugin.getTagAnalytics();
+					chartData = tagData;
+				} else if (metric === 'folderAnalytics') {
+					const folderData = await this.plugin.getFolderAnalytics();
+					chartData = folderData;
+				} else if (metric === 'writingGoals') {
+					const goalsData = await this.plugin.getWritingGoalsProgress();
+					chartData = goalsData;
+				} else {
+					// Standard word count analytics
+					const data = await this.plugin.getWordCountAnalytics(timeFrame);
+					if (data.length === 0) {
+						chartContainer.removeChild(loadingMsg);
+						chartContainer.createEl('p', { text: 'No data available for chart' });
+						return;
+					}
+					chartData = data.reverse().map(item => ({
+						label: item.date,
+						value: item[metric as keyof WordCountData] as number
+					}));
+				}
+
 				chartContainer.removeChild(loadingMsg);
 				
-				if (data.length === 0) {
+				if (chartData.length === 0) {
 					chartContainer.createEl('p', { text: 'No data available for chart' });
 					return;
 				}
@@ -950,12 +1185,6 @@ class ChartVisualizationsModal extends Modal {
 						height: '500'
 					} 
 				});
-
-				// Prepare chart data
-				const chartData = data.reverse().map(item => ({
-					label: item.date,
-					value: item[metric] as number
-				}));
 
 				// Create chart renderer with larger size
 				const renderer = new ChartRenderer(newCanvas, 1000, 500);
@@ -984,6 +1213,30 @@ class ChartVisualizationsModal extends Modal {
 					case 'cumulativeFiles':
 						title = 'Cumulative File Count';
 						color = '#ff6b6b';
+						break;
+					case 'fileSizeDistribution':
+						title = 'File Size Distribution';
+						color = '#17a2b8';
+						break;
+					case 'largestFiles':
+						title = 'Largest Files by Size';
+						color = '#e83e8c';
+						break;
+					case 'fileSizeGrowth':
+						title = 'File Size Growth Trends';
+						color = '#28a745';
+						break;
+					case 'tagAnalytics':
+						title = 'Tag Usage Analytics';
+						color = '#6f42c1';
+						break;
+					case 'folderAnalytics':
+						title = 'Folder Distribution';
+						color = '#fd7e14';
+						break;
+					case 'writingGoals':
+						title = 'Writing Goals Progress (%)';
+						color = '#20c997';
 						break;
 				}
 
@@ -1117,6 +1370,44 @@ class NotesAnalyticsSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.dateFormat)
 				.onChange(async (value) => {
 					this.plugin.settings.dateFormat = value;
+					await this.plugin.saveSettings();
+				}));
+
+		containerEl.createEl('h3', { text: 'Writing Goals' });
+
+		new Setting(containerEl)
+			.setName('Daily Word Goal')
+			.setDesc('Target number of words to write each day')
+			.addText(text => text
+				.setPlaceholder('500')
+				.setValue(this.plugin.settings.dailyWordGoal.toString())
+				.onChange(async (value) => {
+					const goal = parseInt(value) || 500;
+					this.plugin.settings.dailyWordGoal = goal;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Weekly File Goal')
+			.setDesc('Target number of files to create each week')
+			.addText(text => text
+				.setPlaceholder('7')
+				.setValue(this.plugin.settings.weeklyFileGoal.toString())
+				.onChange(async (value) => {
+					const goal = parseInt(value) || 7;
+					this.plugin.settings.weeklyFileGoal = goal;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Monthly Word Goal')
+			.setDesc('Target number of words to write each month')
+			.addText(text => text
+				.setPlaceholder('15000')
+				.setValue(this.plugin.settings.monthlyWordGoal.toString())
+				.onChange(async (value) => {
+					const goal = parseInt(value) || 15000;
+					this.plugin.settings.monthlyWordGoal = goal;
 					await this.plugin.saveSettings();
 				}));
 	}
