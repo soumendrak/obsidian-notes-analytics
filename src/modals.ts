@@ -62,13 +62,13 @@ export class NotesAnalyticsModal extends Modal {
 				.addOption('file-sizes', 'File Size Distribution')
 				.addOption('file-growth', 'File Size Growth')
 				.setValue(this.currentDataType)
-				.onChange(async (value: 'files' | 'words' | 'cumulative-files' | 'file-sizes' | 'file-growth') => {
-					this.currentDataType = value;
+				.onChange(async (value: string) => {
+					this.currentDataType = value as 'files' | 'words' | 'cumulative-files' | 'file-sizes' | 'file-growth';
 					await this.updateChart();
 				}));
 
-		// Time filter selection
-		let currentTimeFilter: TimeFilter = 'daily';
+		// Time filter selection - initialize from settings
+		let currentTimeFilter: TimeFilter = this.settings.defaultTimeFrame;
 		new Setting(controlsEl)
 			.setName('Time Filter')
 			.setDesc('Choose the time range for analysis')
@@ -79,8 +79,8 @@ export class NotesAnalyticsModal extends Modal {
 				.addOption('yearly', 'Yearly (Last 5 years)')
 				.addOption('custom', 'Custom Range')
 				.setValue(currentTimeFilter)
-				.onChange(async (value: TimeFilter) => {
-					currentTimeFilter = value;
+				.onChange(async (value: string) => {
+					currentTimeFilter = value as TimeFilter;
 					await this.updateChart();
 				}));
 
@@ -95,8 +95,8 @@ export class NotesAnalyticsModal extends Modal {
 				.addOption('area', 'Area Chart')
 				.addOption('pie', 'Pie Chart')
 				.setValue(currentChartType)
-				.onChange(async (value: ChartType) => {
-					currentChartType = value;
+				.onChange(async (value: string) => {
+					currentChartType = value as ChartType;
 					await this.renderChart();
 				}));
 

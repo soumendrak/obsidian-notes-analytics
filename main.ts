@@ -330,6 +330,7 @@ interface NotesAnalyticsSettings {
 	enableRealTimeUpdates: boolean;
 	showAdvancedStats: boolean;
 	defaultChartType: 'line' | 'bar' | 'area' | 'pie';
+	defaultTimeFrame: 'day' | 'week' | 'month' | 'quarter' | 'year' | 'all';
 	enableChartExport: boolean;
 	enableCustomDateRange: boolean;
 	dailyWordGoal: number;
@@ -395,6 +396,7 @@ const DEFAULT_SETTINGS: NotesAnalyticsSettings = {
 	enableRealTimeUpdates: true,
 	showAdvancedStats: true,
 	defaultChartType: 'line',
+	defaultTimeFrame: 'day',
 	enableChartExport: true,
 	enableCustomDateRange: true,
 	dailyWordGoal: 500,
@@ -3087,7 +3089,7 @@ export default class NotesAnalyticsPlugin extends Plugin {
 // Comprehensive Analytics Dashboard Modal
 class AnalyticsDashboardModal extends Modal {
 	plugin: NotesAnalyticsPlugin;
-	private currentTimeFrame: string = 'month';
+	private currentTimeFrame: string;
 	private currentDateRange: { start: string; end: string } | null = null;
 	private dashboardContainer: HTMLElement;
 	private filtersContainer: HTMLElement;
@@ -3100,6 +3102,8 @@ class AnalyticsDashboardModal extends Modal {
 	constructor(app: App, plugin: NotesAnalyticsPlugin) {
 		super(app);
 		this.plugin = plugin;
+		// Initialize with default time frame from settings
+		this.currentTimeFrame = plugin.settings.defaultTimeFrame;
 	}
 
 	onOpen() {
@@ -3159,6 +3163,14 @@ class AnalyticsDashboardModal extends Modal {
 
 		// Load initial data
 		this.refreshDashboard();
+
+		// Show helpful message about default time frame on first load
+		if (!this.plugin.settings.hasSeenWelcome) {
+			setTimeout(() => {
+				const timeFrameText = this.getTimeFrameDisplayName(this.currentTimeFrame);
+				new Notice(`Analytics dashboard loaded with default time frame: ${timeFrameText}. You can change this in settings.`, 5000);
+			}, 1000);
+		}
 	}
 
 	private createFiltersSection(container: HTMLElement) {
@@ -3967,6 +3979,21 @@ class AnalyticsDashboardModal extends Modal {
 	}
 
 	/**
+	 * Get display name for time frame
+	 */
+	private getTimeFrameDisplayName(timeFrame: string): string {
+		const timeFrameNames: { [key: string]: string } = {
+			'day': 'Today',
+			'week': 'This Week',
+			'month': 'This Month',
+			'quarter': 'This Quarter',
+			'year': 'This Year',
+			'all': 'All Time'
+		};
+		return timeFrameNames[timeFrame] || timeFrame;
+	}
+
+	/**
 	 * Get all focusable elements in the modal
 	 */
 	private getFocusableElements(): HTMLElement[] {
@@ -4517,6 +4544,22 @@ class NotesAnalyticsSettingTab extends PluginSettingTab {
 				}));
 
 		new Setting(containerEl)
+			.setName('Default Time Frame')
+			.setDesc('Default time frame when opening the analytics dashboard')
+			.addDropdown(dropdown => dropdown
+				.addOption('day', 'Today')
+				.addOption('week', 'This Week')
+				.addOption('month', 'This Month')
+				.addOption('quarter', 'This Quarter')
+				.addOption('year', 'This Year')
+				.addOption('all', 'All Time')
+				.setValue(this.plugin.settings.defaultTimeFrame)
+				.onChange(async (value: 'day' | 'week' | 'month' | 'quarter' | 'year' | 'all') => {
+					this.plugin.settings.defaultTimeFrame = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
 			.setName('Enable Chart Export')
 			.setDesc('Show export buttons to save charts as PNG/SVG images, copy to clipboard, and export data')
 			.addToggle(toggle => toggle
@@ -4632,6 +4675,7 @@ class WelcomeModal extends Modal {
 			<ol>
 				<li>Click the 📊 or 📈 icons in the ribbon to open the analytics views</li>
 				<li>Use the time frame filters to view different periods</li>
+				<li>Configure your preferred default time frame in plugin settings</li>
 				<li>Set your writing goals in the plugin settings</li>
 				<li>Enable advanced features like real-time updates and notifications</li>
 			</ol>

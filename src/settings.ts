@@ -1,5 +1,5 @@
 import { App, PluginSettingTab, Setting } from 'obsidian';
-import { NotesAnalyticsSettings, ChartType } from './types';
+import { NotesAnalyticsSettings, ChartType, TimeFilter } from './types';
 import NotesAnalyticsPlugin from '../main';
 
 export class NotesAnalyticsSettingsTab extends PluginSettingTab {
@@ -56,8 +56,22 @@ export class NotesAnalyticsSettingsTab extends PluginSettingTab {
 				.addOption('area', 'Area Chart')
 				.addOption('pie', 'Pie Chart')
 				.setValue(this.plugin.settings.defaultChartType)
-				.onChange(async (value: ChartType) => {
-					this.plugin.settings.defaultChartType = value;
+				.onChange(async (value) => {
+					this.plugin.settings.defaultChartType = value as ChartType;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Default Time Frame')
+			.setDesc('The time frame to show when opening the dashboard')
+			.addDropdown(dropdown => dropdown
+				.addOption('daily', 'Daily')
+				.addOption('weekly', 'Weekly')
+				.addOption('monthly', 'Monthly')
+				.addOption('yearly', 'Yearly')
+				.setValue(this.plugin.settings.defaultTimeFrame)
+				.onChange(async (value) => {
+					this.plugin.settings.defaultTimeFrame = value as TimeFilter;
 					await this.plugin.saveSettings();
 				}));
 

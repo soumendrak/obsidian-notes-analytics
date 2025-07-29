@@ -5,6 +5,7 @@ export interface NotesAnalyticsSettings {
 	defaultChartType: 'line' | 'bar' | 'area' | 'pie';
 	enableChartExport: boolean;
 	enableCustomDateRange: boolean;
+	defaultTimeFrame: 'daily' | 'weekly' | 'monthly' | 'yearly';
 }
 
 export const DEFAULT_SETTINGS: NotesAnalyticsSettings = {
@@ -13,7 +14,8 @@ export const DEFAULT_SETTINGS: NotesAnalyticsSettings = {
 	showAdvancedStats: true,
 	defaultChartType: 'line',
 	enableChartExport: true,
-	enableCustomDateRange: true
+	enableCustomDateRange: true,
+	defaultTimeFrame: 'daily'
 };
 
 export interface WordCountData {
