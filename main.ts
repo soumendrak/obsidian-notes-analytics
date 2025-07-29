@@ -24,6 +24,7 @@ interface WordCountData {
 	filesCreated: number;
 	avgWordsPerFile: number;
 	cumulativeWords: number;
+	cumulativeFiles: number;
 }
 
 // Chart utilities for data visualization
@@ -607,7 +608,8 @@ export default class NotesAnalyticsPlugin extends Plugin {
 					totalWords: 0,
 					filesCreated: 0,
 					avgWordsPerFile: 0,
-					cumulativeWords: 0
+					cumulativeWords: 0,
+					cumulativeFiles: 0
 				});
 			}
 
@@ -620,11 +622,14 @@ export default class NotesAnalyticsPlugin extends Plugin {
 		// Calculate averages and cumulative data
 		const sortedData = Array.from(dataMap.values()).sort((a, b) => a.date.localeCompare(b.date));
 		let cumulativeWords = 0;
+		let cumulativeFiles = 0;
 		
 		sortedData.forEach(item => {
 			item.avgWordsPerFile = item.filesCreated > 0 ? Math.round(item.totalWords / item.filesCreated) : 0;
 			cumulativeWords += item.totalWords;
+			cumulativeFiles += item.filesCreated;
 			item.cumulativeWords = cumulativeWords;
+			item.cumulativeFiles = cumulativeFiles;
 		});
 
 		return sortedData.reverse(); // Return in descending order for recent first
@@ -664,7 +669,8 @@ export default class NotesAnalyticsPlugin extends Plugin {
 					totalWords: 0,
 					filesCreated: 0,
 					avgWordsPerFile: 0,
-					cumulativeWords: 0
+					cumulativeWords: 0,
+					cumulativeFiles: 0
 				});
 			}
 
@@ -677,11 +683,14 @@ export default class NotesAnalyticsPlugin extends Plugin {
 		// Calculate averages and cumulative data
 		const sortedData = Array.from(dataMap.values()).sort((a, b) => a.date.localeCompare(b.date));
 		let cumulativeWords = 0;
+		let cumulativeFiles = 0;
 		
 		sortedData.forEach(item => {
 			item.avgWordsPerFile = item.filesCreated > 0 ? Math.round(item.totalWords / item.filesCreated) : 0;
 			cumulativeWords += item.totalWords;
+			cumulativeFiles += item.filesCreated;
 			item.cumulativeWords = cumulativeWords;
+			item.cumulativeFiles = cumulativeFiles;
 		});
 
 		return sortedData.reverse(); // Return in descending order for recent first
@@ -765,7 +774,7 @@ export default class NotesAnalyticsPlugin extends Plugin {
 			
 			if (format === 'csv') {
 				// CSV format
-				const headers = ['Date', 'Files Created', 'Total Words', 'Avg Words per File', 'Cumulative Words'];
+				const headers = ['Date', 'Files Created', 'Total Words', 'Avg Words per File', 'Cumulative Words', 'Cumulative Files'];
 				const csvRows = [headers.join(',')];
 				
 				data.forEach(item => {
@@ -774,7 +783,8 @@ export default class NotesAnalyticsPlugin extends Plugin {
 						item.filesCreated.toString(),
 						item.totalWords.toString(),
 						item.avgWordsPerFile.toString(),
-						item.cumulativeWords.toString()
+						item.cumulativeWords.toString(),
+						item.cumulativeFiles.toString()
 					];
 					csvRows.push(row.join(','));
 				});
@@ -870,6 +880,7 @@ class ChartVisualizationsModal extends Modal {
 		metricSelect.createEl('option', { value: 'avgWordsPerFile', text: 'Avg Words/File' });
 		if (this.plugin.settings.showAdvancedStats) {
 			metricSelect.createEl('option', { value: 'cumulativeWords', text: 'Cumulative Words' });
+			metricSelect.createEl('option', { value: 'cumulativeFiles', text: 'Cumulative File Count' });
 		}
 
 		// Export controls in top right
@@ -965,6 +976,14 @@ class ChartVisualizationsModal extends Modal {
 					case 'avgWordsPerFile':
 						title = 'Average Words per File';
 						color = '#f5a623';
+						break;
+					case 'cumulativeWords':
+						title = 'Cumulative Words';
+						color = '#9013fe';
+						break;
+					case 'cumulativeFiles':
+						title = 'Cumulative File Count';
+						color = '#ff6b6b';
 						break;
 				}
 

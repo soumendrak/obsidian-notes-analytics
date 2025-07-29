@@ -9,7 +9,7 @@ A specialized analytics plugin for Obsidian that provides interactive chart visu
 - **Bar Charts**: Compare data across periods with clear bar visualizations
 - **Area Charts**: Filled area charts showing data trends with gradient fills
 - **Pie Charts**: Circular charts perfect for showing proportional data
-- **Multiple Metrics**: Chart total words, files created, average words per file, and cumulative data
+- **Multiple Metrics**: Chart total words, files created, cumulative file count, average words per file, and cumulative data
 - **Flexible Time Frames**: View daily, weekly, monthly, or yearly data
 - **Custom Date Ranges**: Select specific date ranges for targeted analysis
 - **Large Display**: Enhanced modal window with 1000x500px charts for better visibility
@@ -39,7 +39,7 @@ Interactive data visualizations featuring:
 - **Line Charts**: Perfect for tracking trends and patterns over time
 - **Bar Charts**: Ideal for comparing data across different periods
 - **Dynamic Controls**: Switch between chart types, time frames, and metrics instantly
-- **Multiple Metrics**: Visualize total words, files created, average words per file, or cumulative progress
+- **Multiple Metrics**: Visualize total words, files created, cumulative file count, average words per file, or cumulative progress
 - **Responsive Design**: Charts adapt to your theme and display preferences
 - **Export Ready**: High-quality canvas-based charts for clear visualization
 

@@ -10,7 +10,7 @@ export class NotesAnalyticsModal extends Modal {
 	private streakService: StreakService;
 	private chartRenderer: ChartRenderer | null = null;
 	private currentData: FileCreationData[] | WordCountData[] | Array<{ label: string; value: number }> = [];
-	private currentDataType: 'files' | 'words' | 'file-sizes' | 'file-growth' = 'files';
+	private currentDataType: 'files' | 'words' | 'cumulative-files' | 'file-sizes' | 'file-growth' = 'files';
 
 	constructor(app: App, settings: NotesAnalyticsSettings) {
 		super(app);
@@ -58,10 +58,11 @@ export class NotesAnalyticsModal extends Modal {
 			.addDropdown(dropdown => dropdown
 				.addOption('files', 'File Creation')
 				.addOption('words', 'Word Count')
+				.addOption('cumulative-files', 'Cumulative File Count')
 				.addOption('file-sizes', 'File Size Distribution')
 				.addOption('file-growth', 'File Size Growth')
 				.setValue(this.currentDataType)
-				.onChange(async (value: 'files' | 'words' | 'file-sizes' | 'file-growth') => {
+				.onChange(async (value: 'files' | 'words' | 'cumulative-files' | 'file-sizes' | 'file-growth') => {
 					this.currentDataType = value;
 					await this.updateChart();
 				}));
@@ -118,6 +119,8 @@ export class NotesAnalyticsModal extends Modal {
 				this.currentData = await this.dataService.getFileCreationData(currentTimeFilter);
 			} else if (this.currentDataType === 'words') {
 				this.currentData = await this.dataService.getWordCountData(currentTimeFilter);
+			} else if (this.currentDataType === 'cumulative-files') {
+				this.currentData = await this.dataService.getCumulativeFileCountData(currentTimeFilter);
 			} else if (this.currentDataType === 'file-sizes') {
 				this.currentData = await this.dataService.getFileSizeDistributionData();
 			} else if (this.currentDataType === 'file-growth') {
@@ -136,6 +139,9 @@ export class NotesAnalyticsModal extends Modal {
 					break;
 				case 'words':
 					title = `Word Count - ${currentTimeFilter.charAt(0).toUpperCase() + currentTimeFilter.slice(1)}`;
+					break;
+				case 'cumulative-files':
+					title = `Cumulative File Count - ${currentTimeFilter.charAt(0).toUpperCase() + currentTimeFilter.slice(1)}`;
 					break;
 				case 'file-sizes':
 					title = 'File Size Distribution';

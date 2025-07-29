@@ -88,6 +88,11 @@ export class DataService {
 				const dateA = this.parseLabel(a.label, timeFilter);
 				const dateB = this.parseLabel(b.label, timeFilter);
 				return dateA.valueOf() - dateB.valueOf();
+			})
+			.map((item, index, array) => {
+				// Calculate cumulative count
+				const cumulative = array.slice(0, index + 1).reduce((sum, curr) => sum + curr.count, 0);
+				return { ...item, cumulative };
 			});
 	}
 
@@ -294,6 +299,15 @@ export class DataService {
 			default:
 				return moment(label, 'MMM DD');
 		}
+	}
+
+	// Cumulative file count method
+	async getCumulativeFileCountData(timeFilter: TimeFilter, customStart?: string, customEnd?: string): Promise<Array<{ label: string; value: number }>> {
+		const fileCreationData = await this.getFileCreationData(timeFilter, customStart, customEnd);
+		return fileCreationData.map(item => ({
+			label: item.label,
+			value: item.cumulative || 0
+		}));
 	}
 
 	// File size service methods

@@ -24,6 +24,7 @@ export interface WordCountData {
 export interface FileCreationData {
 	label: string;
 	count: number;
+	cumulative?: number;
 }
 
 export interface AnalyticsSummary {

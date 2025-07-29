@@ -32,7 +32,7 @@ export class ChartRenderer {
 	private setupTooltip() {
 		this.tooltip = document.createElement('div');
 		this.tooltip.className = 'chart-tooltip';
-		this.tooltip.style.cssText = \`
+		this.tooltip.style.cssText = `
 			position: absolute;
 			background: rgba(0, 0, 0, 0.8);
 			color: white;
@@ -43,7 +43,7 @@ export class ChartRenderer {
 			z-index: 1000;
 			display: none;
 			font-family: var(--font-interface);
-		\`;
+		`;
 		document.body.appendChild(this.tooltip);
 	}
 
@@ -86,10 +86,10 @@ export class ChartRenderer {
 	}
 
 	private showTooltip(label: string, value: number, x: number, y: number) {
-		this.tooltip.textContent = \`\${label}: \${value.toLocaleString()}\`;
+		this.tooltip.textContent = `${label}: ${value.toLocaleString()}`;
 		this.tooltip.style.display = 'block';
-		this.tooltip.style.left = \`\${x + 10}px\`;
-		this.tooltip.style.top = \`\${y - 30}px\`;
+		this.tooltip.style.left = `${x + 10}px`;
+		this.tooltip.style.top = `${y - 30}px`;
 	}
 
 	private hideTooltip() {
