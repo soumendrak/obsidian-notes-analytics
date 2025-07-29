@@ -142,10 +142,10 @@ Planned features for future releases:
 - [x] File size analytics and growth tracking ✅ **COMPLETED**
 - [x] Tags and folder-based analytics filtering ✅ **COMPLETED**
 - [x] Writing goals and progress tracking ✅ **COMPLETED**
-- [ ] Integration with daily notes for better insights
-- [ ] Comparison views (this month vs last month)
-- [ ] Heatmap calendar view of writing activity
-- [ ] Chart animation and transition effects
+- [x] Integration with daily notes for better insights ✅ **COMPLETED**
+- [x] Comparison views (for e.g. this month vs last month, this week vs last week, this year vs last year) ✅ **COMPLETED**
+- [x] Heatmap calendar view of writing activity ✅ **COMPLETED**
+- [x] Chart animation and transition effects ✅ **COMPLETED**
 
 ## Contributing
 

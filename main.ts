@@ -47,6 +47,10 @@ class ChartRenderer {
 	private width: number;
 	private height: number;
 	private padding = { top: 40, right: 40, bottom: 60, left: 80 };
+	private animationFrame: number | null = null;
+	private animationStartTime: number = 0;
+	private animationDuration: number = 1000; // 1 second
+	private isAnimating: boolean = false;
 
 	constructor(canvas: HTMLCanvasElement, width: number = 900, height: number = 600) {
 		this.canvas = canvas;
@@ -64,6 +68,36 @@ class ChartRenderer {
 			width: this.width - this.padding.left - this.padding.right,
 			height: this.height - this.padding.top - this.padding.bottom
 		};
+	}
+
+	private easeInOutCubic(t: number): number {
+		return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+	}
+
+	private animateChart(renderFunction: (progress: number) => void) {
+		if (this.animationFrame) {
+			cancelAnimationFrame(this.animationFrame);
+		}
+
+		this.isAnimating = true;
+		this.animationStartTime = performance.now();
+
+		const animate = (currentTime: number) => {
+			const elapsed = currentTime - this.animationStartTime;
+			const rawProgress = Math.min(elapsed / this.animationDuration, 1);
+			const easedProgress = this.easeInOutCubic(rawProgress);
+
+			renderFunction(easedProgress);
+
+			if (rawProgress < 1) {
+				this.animationFrame = requestAnimationFrame(animate);
+			} else {
+				this.isAnimating = false;
+				this.animationFrame = null;
+			}
+		};
+
+		this.animationFrame = requestAnimationFrame(animate);
 	}
 
 	private drawGrid(chartArea: any, xLabels: string[], maxValue: number) {
@@ -115,10 +149,8 @@ class ChartRenderer {
 		const { ctx } = this;
 		const chartArea = this.getChartArea();
 
-		// Clear canvas
-		ctx.clearRect(0, 0, this.width, this.height);
-
 		if (data.length === 0) {
+			ctx.clearRect(0, 0, this.width, this.height);
 			ctx.fillStyle = 'var(--text-muted)';
 			ctx.font = '16px var(--font-interface)';
 			ctx.textAlign = 'center';
@@ -129,42 +161,69 @@ class ChartRenderer {
 		const maxValue = Math.max(...data.map(d => d.value));
 		const labels = data.map(d => d.label);
 
-		// Draw grid and axes
-		this.drawGrid(chartArea, labels, maxValue);
+		this.animateChart((progress: number) => {
+			// Clear canvas
+			ctx.clearRect(0, 0, this.width, this.height);
 
-		// Draw title
-		ctx.fillStyle = 'var(--text-accent)';
-		ctx.font = 'bold 16px var(--font-interface)';
-		ctx.textAlign = 'center';
-		ctx.fillText(title, this.width / 2, 25);
+			// Draw grid and axes
+			this.drawGrid(chartArea, labels, maxValue);
 
-		// Draw line
-		ctx.strokeStyle = color;
-		ctx.lineWidth = 3;
-		ctx.beginPath();
+			// Draw title
+			ctx.fillStyle = 'var(--text-accent)';
+			ctx.font = 'bold 16px var(--font-interface)';
+			ctx.textAlign = 'center';
+			ctx.fillText(title, this.width / 2, 25);
 
-		const stepX = chartArea.width / Math.max(1, data.length - 1);
-		data.forEach((point, i) => {
-			const x = chartArea.x + (i * stepX);
-			const y = chartArea.y + chartArea.height - (point.value / maxValue * chartArea.height);
-
-			if (i === 0) {
-				ctx.moveTo(x, y);
-			} else {
-				ctx.lineTo(x, y);
-			}
-		});
-		ctx.stroke();
-
-		// Draw points
-		ctx.fillStyle = color;
-		data.forEach((point, i) => {
-			const x = chartArea.x + (i * stepX);
-			const y = chartArea.y + chartArea.height - (point.value / maxValue * chartArea.height);
-
+			// Draw animated line
+			ctx.strokeStyle = color;
+			ctx.lineWidth = 3;
 			ctx.beginPath();
-			ctx.arc(x, y, 4, 0, Math.PI * 2);
-			ctx.fill();
+
+			const stepX = chartArea.width / Math.max(1, data.length - 1);
+			const visiblePoints = Math.floor(data.length * progress);
+			
+			data.slice(0, visiblePoints + 1).forEach((point, i) => {
+				const x = chartArea.x + (i * stepX);
+				let y = chartArea.y + chartArea.height - (point.value / maxValue * chartArea.height);
+				
+				// Apply easing to the last point being drawn
+				if (i === visiblePoints && progress < 1) {
+					const nextPoint = data[i + 1];
+					if (nextPoint) {
+						const nextY = chartArea.y + chartArea.height - (nextPoint.value / maxValue * chartArea.height);
+						const pointProgress = (data.length * progress) - i;
+						y = y + (nextY - y) * pointProgress;
+					}
+				}
+
+				if (i === 0) {
+					ctx.moveTo(x, y);
+				} else {
+					ctx.lineTo(x, y);
+				}
+			});
+			ctx.stroke();
+
+			// Draw animated points
+			ctx.fillStyle = color;
+			data.slice(0, visiblePoints + 1).forEach((point, i) => {
+				const x = chartArea.x + (i * stepX);
+				let y = chartArea.y + chartArea.height - (point.value / maxValue * chartArea.height);
+				
+				// Apply easing to the last point being drawn
+				if (i === visiblePoints && progress < 1) {
+					const nextPoint = data[i + 1];
+					if (nextPoint) {
+						const nextY = chartArea.y + chartArea.height - (nextPoint.value / maxValue * chartArea.height);
+						const pointProgress = (data.length * progress) - i;
+						y = y + (nextY - y) * pointProgress;
+					}
+				}
+
+				ctx.beginPath();
+				ctx.arc(x, y, 4, 0, Math.PI * 2);
+				ctx.fill();
+			});
 		});
 	}
 
@@ -172,10 +231,8 @@ class ChartRenderer {
 		const { ctx } = this;
 		const chartArea = this.getChartArea();
 
-		// Clear canvas
-		ctx.clearRect(0, 0, this.width, this.height);
-
 		if (data.length === 0) {
+			ctx.clearRect(0, 0, this.width, this.height);
 			ctx.fillStyle = 'var(--text-muted)';
 			ctx.font = '16px var(--font-interface)';
 			ctx.textAlign = 'center';
@@ -186,40 +243,46 @@ class ChartRenderer {
 		const maxValue = Math.max(...data.map(d => d.value));
 		const labels = data.map(d => d.label);
 
-		// Draw grid and axes
-		this.drawGrid(chartArea, labels, maxValue);
+		this.animateChart((progress: number) => {
+			// Clear canvas
+			ctx.clearRect(0, 0, this.width, this.height);
 
-		// Draw title
-		ctx.fillStyle = 'var(--text-accent)';
-		ctx.font = 'bold 16px var(--font-interface)';
-		ctx.textAlign = 'center';
-		ctx.fillText(title, this.width / 2, 25);
+			// Draw grid and axes
+			this.drawGrid(chartArea, labels, maxValue);
 
-		// Draw bars
-		const barWidth = chartArea.width / data.length * 0.8;
-		const barSpacing = chartArea.width / data.length * 0.2;
+			// Draw title
+			ctx.fillStyle = 'var(--text-accent)';
+			ctx.font = 'bold 16px var(--font-interface)';
+			ctx.textAlign = 'center';
+			ctx.fillText(title, this.width / 2, 25);
 
-		data.forEach((point, i) => {
-			const barHeight = (point.value / maxValue) * chartArea.height;
-			const x = chartArea.x + (i * (barWidth + barSpacing)) + barSpacing / 2;
-			const y = chartArea.y + chartArea.height - barHeight;
+			// Draw animated bars
+			const barWidth = chartArea.width / data.length * 0.8;
+			const barSpacing = chartArea.width / data.length * 0.2;
 
-			// Bar
-			ctx.fillStyle = color;
-			ctx.fillRect(x, y, barWidth, barHeight);
+			data.forEach((point, i) => {
+				const fullBarHeight = (point.value / maxValue) * chartArea.height;
+				const barHeight = fullBarHeight * progress;
+				const x = chartArea.x + (i * (barWidth + barSpacing)) + barSpacing / 2;
+				const y = chartArea.y + chartArea.height - barHeight;
 
-			// Bar border
-			ctx.strokeStyle = color;
-			ctx.lineWidth = 1;
-			ctx.strokeRect(x, y, barWidth, barHeight);
+				// Bar
+				ctx.fillStyle = color;
+				ctx.fillRect(x, y, barWidth, barHeight);
 
-			// Value labels on bars
-			if (barHeight > 20) {
-				ctx.fillStyle = 'white';
-				ctx.font = '12px var(--font-interface)';
-				ctx.textAlign = 'center';
-				ctx.fillText(point.value.toString(), x + barWidth / 2, y + 15);
-			}
+				// Bar border
+				ctx.strokeStyle = color;
+				ctx.lineWidth = 1;
+				ctx.strokeRect(x, y, barWidth, barHeight);
+
+				// Value labels on bars (only show when animation is complete)
+				if (progress > 0.8 && barHeight > 20) {
+					ctx.fillStyle = 'white';
+					ctx.font = '12px var(--font-interface)';
+					ctx.textAlign = 'center';
+					ctx.fillText(point.value.toString(), x + barWidth / 2, y + 15);
+				}
+			});
 		});
 	}
 
@@ -282,6 +345,134 @@ class ChartRenderer {
 
 			currentAngle += sliceAngle;
 		});
+	}
+
+	renderHeatmapCalendar(data: { label: string; value: number }[], title: string, color: string = '#28a745') {
+		const { ctx } = this;
+		const chartArea = this.getChartArea();
+
+		// Clear canvas
+		ctx.clearRect(0, 0, this.width, this.height);
+
+		if (data.length === 0) {
+			ctx.fillStyle = 'var(--text-muted)';
+			ctx.font = '16px var(--font-interface)';
+			ctx.textAlign = 'center';
+			ctx.fillText('No data available', this.width / 2, this.height / 2);
+			return;
+		}
+
+		// Draw title
+		ctx.fillStyle = 'var(--text-normal)';
+		ctx.font = 'bold 16px var(--font-interface)';
+		ctx.textAlign = 'center';
+		ctx.fillText(title, this.width / 2, 25);
+
+		// Process calendar data - extract dates and values
+		const calendarData = new Map<string, number>();
+		data.forEach(item => {
+			// Extract date from label (format: "YYYY-MM-DD (X files, Y words)")
+			const dateMatch = item.label.match(/^(\d{4}-\d{2}-\d{2})/);
+			if (dateMatch) {
+				calendarData.set(dateMatch[1], item.value);
+			}
+		});
+
+		// Calendar grid settings
+		const cellSize = Math.min(12, (chartArea.width - 100) / 53); // ~53 weeks in a year
+		const cellSpacing = 2;
+		const monthLabelHeight = 20;
+		const dayLabelWidth = 20;
+
+		// Month labels
+		const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+		ctx.fillStyle = 'var(--text-muted)';
+		ctx.font = '12px var(--font-interface)';
+		ctx.textAlign = 'left';
+
+		// Day labels (Mon, Wed, Fri)
+		const dayLabels = ['Mon', '', 'Wed', '', 'Fri', '', 'Sun'];
+		dayLabels.forEach((label, i) => {
+			if (label) {
+				ctx.fillText(label, chartArea.x, chartArea.y + monthLabelHeight + (i * (cellSize + cellSpacing)) + cellSize);
+			}
+		});
+
+		// Get max intensity for color scaling
+		const maxIntensity = Math.max(...data.map(d => d.value));
+
+		// Start from beginning of year
+		const year = moment().year();
+		const startDate = moment(`${year}-01-01`);
+		
+		// Draw month labels and grid
+		for (let month = 0; month < 12; month++) {
+			const monthStart = moment(`${year}-${String(month + 1).padStart(2, '0')}-01`);
+			const weekOfYear = monthStart.week() - startDate.week();
+			
+			// Month label
+			if (weekOfYear >= 0 && weekOfYear * (cellSize + cellSpacing) + dayLabelWidth < chartArea.width) {
+				ctx.fillText(
+					months[month], 
+					chartArea.x + dayLabelWidth + (weekOfYear * (cellSize + cellSpacing)), 
+					chartArea.y + 15
+				);
+			}
+		}
+
+		// Draw calendar cells
+		for (let week = 0; week < 53; week++) {
+			for (let day = 0; day < 7; day++) {
+				const currentDate = startDate.clone().add(week * 7 + day, 'days');
+				if (currentDate.year() !== year) continue;
+
+				const dateKey = currentDate.format('YYYY-MM-DD');
+				const intensity = calendarData.get(dateKey) || 0;
+				
+				// Calculate position
+				const x = chartArea.x + dayLabelWidth + (week * (cellSize + cellSpacing));
+				const y = chartArea.y + monthLabelHeight + (day * (cellSize + cellSpacing));
+				
+				// Skip if outside bounds
+				if (x + cellSize > chartArea.x + chartArea.width) break;
+
+				// Calculate color intensity based on activity
+				let fillColor = 'var(--background-modifier-border)';
+				if (intensity > 0) {
+					const alpha = Math.max(0.1, Math.min(1, intensity / 100));
+					fillColor = color + Math.round(alpha * 255).toString(16).padStart(2, '0');
+				}
+
+				// Draw cell
+				ctx.fillStyle = fillColor;
+				ctx.fillRect(x, y, cellSize, cellSize);
+				
+				// Cell border
+				ctx.strokeStyle = 'var(--background-primary)';
+				ctx.lineWidth = 1;
+				ctx.strokeRect(x, y, cellSize, cellSize);
+			}
+		}
+
+		// Draw legend
+		const legendY = chartArea.y + chartArea.height - 30;
+		ctx.fillStyle = 'var(--text-muted)';
+		ctx.font = '11px var(--font-interface)';
+		ctx.textAlign = 'center';
+		ctx.fillText('Less', chartArea.x + dayLabelWidth, legendY + 15);
+		
+		// Legend gradient squares
+		for (let i = 0; i < 5; i++) {
+			const alpha = (i + 1) / 5;
+			const legendColor = color + Math.round(alpha * 255).toString(16).padStart(2, '0');
+			ctx.fillStyle = legendColor;
+			ctx.fillRect(chartArea.x + dayLabelWidth + 30 + (i * 12), legendY, 10, 10);
+			ctx.strokeStyle = 'var(--background-primary)';
+			ctx.strokeRect(chartArea.x + dayLabelWidth + 30 + (i * 12), legendY, 10, 10);
+		}
+		
+		ctx.fillStyle = 'var(--text-muted)';
+		ctx.fillText('More', chartArea.x + dayLabelWidth + 30 + (5 * 12) + 15, legendY + 15);
 	}
 
 	renderAreaChart(data: { label: string; value: number }[], title: string, color: string = '#007acc') {
@@ -1022,6 +1213,174 @@ export default class NotesAnalyticsPlugin extends Plugin {
 			console.error('Export error:', error);
 		}
 	}
+
+	// Comparison Views Methods
+	async getComparisonData(period: 'month' | 'week' | 'year'): Promise<{ label: string; current: number; previous: number; change: number; changePercent: number }[]> {
+		const files = this.app.vault.getMarkdownFiles();
+		let currentPeriodData: { totalWords: number; filesCreated: number; avgWordsPerFile: number } = {
+			totalWords: 0,
+			filesCreated: 0,
+			avgWordsPerFile: 0
+		};
+		let previousPeriodData: { totalWords: number; filesCreated: number; avgWordsPerFile: number } = {
+			totalWords: 0,
+			filesCreated: 0,
+			avgWordsPerFile: 0
+		};
+
+		let currentStart: moment.Moment, currentEnd: moment.Moment;
+		let previousStart: moment.Moment, previousEnd: moment.Moment;
+
+		switch (period) {
+			case 'month':
+				currentStart = moment().startOf('month');
+				currentEnd = moment().endOf('month');
+				previousStart = moment().subtract(1, 'month').startOf('month');
+				previousEnd = moment().subtract(1, 'month').endOf('month');
+				break;
+			case 'week':
+				currentStart = moment().startOf('week');
+				currentEnd = moment().endOf('week');
+				previousStart = moment().subtract(1, 'week').startOf('week');
+				previousEnd = moment().subtract(1, 'week').endOf('week');
+				break;
+			case 'year':
+				currentStart = moment().startOf('year');
+				currentEnd = moment().endOf('year');
+				previousStart = moment().subtract(1, 'year').startOf('year');
+				previousEnd = moment().subtract(1, 'year').endOf('year');
+				break;
+		}
+
+		// Process files for current period
+		for (const file of files) {
+			const fileDate = moment(file.stat.ctime);
+			const wordCount = await this.getWordCount(file);
+
+			if (fileDate.isBetween(currentStart, currentEnd, 'day', '[]')) {
+				currentPeriodData.totalWords += wordCount;
+				currentPeriodData.filesCreated++;
+			}
+
+			if (fileDate.isBetween(previousStart, previousEnd, 'day', '[]')) {
+				previousPeriodData.totalWords += wordCount;
+				previousPeriodData.filesCreated++;
+			}
+		}
+
+		// Calculate averages
+		currentPeriodData.avgWordsPerFile = currentPeriodData.filesCreated > 0 
+			? Math.round(currentPeriodData.totalWords / currentPeriodData.filesCreated) 
+			: 0;
+		previousPeriodData.avgWordsPerFile = previousPeriodData.filesCreated > 0 
+			? Math.round(previousPeriodData.totalWords / previousPeriodData.filesCreated) 
+			: 0;
+
+		// Calculate changes and percentages
+		const wordChange = currentPeriodData.totalWords - previousPeriodData.totalWords;
+		const wordChangePercent = previousPeriodData.totalWords > 0 
+			? Math.round((wordChange / previousPeriodData.totalWords) * 100) 
+			: 0;
+
+		const fileChange = currentPeriodData.filesCreated - previousPeriodData.filesCreated;
+		const fileChangePercent = previousPeriodData.filesCreated > 0 
+			? Math.round((fileChange / previousPeriodData.filesCreated) * 100) 
+			: 0;
+
+		const avgWordChange = currentPeriodData.avgWordsPerFile - previousPeriodData.avgWordsPerFile;
+		const avgWordChangePercent = previousPeriodData.avgWordsPerFile > 0 
+			? Math.round((avgWordChange / previousPeriodData.avgWordsPerFile) * 100) 
+			: 0;
+
+		return [
+			{
+				label: 'Total Words',
+				current: currentPeriodData.totalWords,
+				previous: previousPeriodData.totalWords,
+				change: wordChange,
+				changePercent: wordChangePercent
+			},
+			{
+				label: 'Files Created',
+				current: currentPeriodData.filesCreated,
+				previous: previousPeriodData.filesCreated,
+				change: fileChange,
+				changePercent: fileChangePercent
+			},
+			{
+				label: 'Avg Words/File',
+				current: currentPeriodData.avgWordsPerFile,
+				previous: previousPeriodData.avgWordsPerFile,
+				change: avgWordChange,
+				changePercent: avgWordChangePercent
+			}
+		];
+	}
+
+	// Heatmap Calendar Data
+	async getHeatmapCalendarData(year: number = moment().year()): Promise<{ label: string; value: number }[]> {
+		const files = this.app.vault.getMarkdownFiles();
+		const dailyActivity = new Map<string, { wordCount: number; fileCount: number }>();
+
+		// Initialize all days of the year
+		const startDate = moment(`${year}-01-01`);
+		const endDate = moment(`${year}-12-31`);
+		
+		for (let date = startDate.clone(); date.isSameOrBefore(endDate); date.add(1, 'day')) {
+			const dateKey = date.format('YYYY-MM-DD');
+			dailyActivity.set(dateKey, { wordCount: 0, fileCount: 0 });
+		}
+
+		// Process files for the year
+		for (const file of files) {
+			const fileDate = moment(file.stat.ctime);
+			const modifiedDate = moment(file.stat.mtime);
+			
+			// Count file creation
+			if (fileDate.year() === year) {
+				const dateKey = fileDate.format('YYYY-MM-DD');
+				const existing = dailyActivity.get(dateKey) || { wordCount: 0, fileCount: 0 };
+				existing.fileCount++;
+				
+				try {
+					const wordCount = await this.getWordCount(file);
+					existing.wordCount += wordCount;
+				} catch (error) {
+					// Skip files that can't be read
+				}
+				
+				dailyActivity.set(dateKey, existing);
+			}
+			
+			// Count file modifications (different from creation date)
+			if (modifiedDate.year() === year && !modifiedDate.isSame(fileDate, 'day')) {
+				const dateKey = modifiedDate.format('YYYY-MM-DD');
+				const existing = dailyActivity.get(dateKey) || { wordCount: 0, fileCount: 0 };
+				
+				try {
+					const wordCount = await this.getWordCount(file);
+					existing.wordCount += Math.round(wordCount * 0.3); // Weight modifications less than creation
+				} catch (error) {
+					// Skip files that can't be read
+				}
+				
+				dailyActivity.set(dateKey, existing);
+			}
+		}
+
+		// Calculate activity intensity and return as chart data
+		const maxActivity = Math.max(...Array.from(dailyActivity.values()).map(data => data.wordCount + (data.fileCount * 50)));
+		
+		return Array.from(dailyActivity.entries()).map(([date, data]) => {
+			const activity = data.wordCount + (data.fileCount * 50); // Weight files as 50 words each
+			const intensity = maxActivity > 0 ? Math.round((activity / maxActivity) * 100) : 0;
+			
+			return {
+				label: `${date} (${data.fileCount} files, ${data.wordCount} words)`,
+				value: intensity
+			};
+		}).sort((a, b) => a.label.localeCompare(b.label));
+	}
 }
 
 class ChartVisualizationsModal extends Modal {
@@ -1082,6 +1441,10 @@ class ChartVisualizationsModal extends Modal {
 			metricSelect.createEl('option', { value: 'tagAnalytics', text: 'Tag Usage Analytics' });
 			metricSelect.createEl('option', { value: 'folderAnalytics', text: 'Folder Analytics' });
 			metricSelect.createEl('option', { value: 'writingGoals', text: 'Writing Goals Progress' });
+			metricSelect.createEl('option', { value: 'comparisonMonth', text: 'This Month vs Last Month' });
+			metricSelect.createEl('option', { value: 'comparisonWeek', text: 'This Week vs Last Week' });
+			metricSelect.createEl('option', { value: 'comparisonYear', text: 'This Year vs Last Year' });
+			metricSelect.createEl('option', { value: 'heatmapCalendar', text: 'Writing Activity Heatmap Calendar' });
 		}
 
 		// Export controls in top right
@@ -1128,7 +1491,7 @@ class ChartVisualizationsModal extends Modal {
 		const updateChart = async () => {
 			const timeFrame = timeSelect.value as 'day' | 'week' | 'month' | 'year';
 			const chartType = typeSelect.value as 'line' | 'bar' | 'area' | 'pie';
-			const metric = metricSelect.value as keyof WordCountData | 'fileSizeDistribution' | 'largestFiles' | 'fileSizeGrowth' | 'tagAnalytics' | 'folderAnalytics' | 'writingGoals';
+			const metric = metricSelect.value as keyof WordCountData | 'fileSizeDistribution' | 'largestFiles' | 'fileSizeGrowth' | 'tagAnalytics' | 'folderAnalytics' | 'writingGoals' | 'comparisonMonth' | 'comparisonWeek' | 'comparisonYear' | 'heatmapCalendar';
 
 			// Show loading message
 			chartContainer.empty();
@@ -1156,6 +1519,18 @@ class ChartVisualizationsModal extends Modal {
 				} else if (metric === 'writingGoals') {
 					const goalsData = await this.plugin.getWritingGoalsProgress();
 					chartData = goalsData;
+				} else if (metric === 'comparisonMonth') {
+					const comparisonData = await this.plugin.getComparisonData('month');
+					chartData = this.formatComparisonData(comparisonData, 'Month');
+				} else if (metric === 'comparisonWeek') {
+					const comparisonData = await this.plugin.getComparisonData('week');
+					chartData = this.formatComparisonData(comparisonData, 'Week');
+				} else if (metric === 'comparisonYear') {
+					const comparisonData = await this.plugin.getComparisonData('year');
+					chartData = this.formatComparisonData(comparisonData, 'Year');
+				} else if (metric === 'heatmapCalendar') {
+					const heatmapData = await this.plugin.getHeatmapCalendarData();
+					chartData = heatmapData;
 				} else {
 					// Standard word count analytics
 					const data = await this.plugin.getWordCountAnalytics(timeFrame);
@@ -1238,21 +1613,53 @@ class ChartVisualizationsModal extends Modal {
 						title = 'Writing Goals Progress (%)';
 						color = '#20c997';
 						break;
+					case 'comparisonMonth':
+						title = 'This Month vs Last Month Comparison';
+						color = '#6f42c1';
+						break;
+					case 'comparisonWeek':
+						title = 'This Week vs Last Week Comparison';
+						color = '#fd7e14';
+						break;
+					case 'comparisonYear':
+						title = 'This Year vs Last Year Comparison';
+						color = '#dc3545';
+						break;
+					case 'heatmapCalendar':
+						title = `Writing Activity Heatmap Calendar ${moment().year()}`;
+						color = '#28a745';
+						break;
 				}
 
 				// Render chart based on type
 				switch (chartType) {
 					case 'line':
-						renderer.renderLineChart(chartData, title, color);
+						if (metric === 'heatmapCalendar') {
+							renderer.renderHeatmapCalendar(chartData, title, color);
+						} else {
+							renderer.renderLineChart(chartData, title, color);
+						}
 						break;
 					case 'bar':
-						renderer.renderBarChart(chartData, title, color);
+						if (metric === 'heatmapCalendar') {
+							renderer.renderHeatmapCalendar(chartData, title, color);
+						} else {
+							renderer.renderBarChart(chartData, title, color);
+						}
 						break;
 					case 'area':
-						renderer.renderAreaChart(chartData, title, color);
+						if (metric === 'heatmapCalendar') {
+							renderer.renderHeatmapCalendar(chartData, title, color);
+						} else {
+							renderer.renderAreaChart(chartData, title, color);
+						}
 						break;
 					case 'pie':
-						renderer.renderPieChart(chartData, title);
+						if (metric === 'heatmapCalendar') {
+							renderer.renderHeatmapCalendar(chartData, title, color);
+						} else {
+							renderer.renderPieChart(chartData, title);
+						}
 						break;
 				}
 
@@ -1285,6 +1692,36 @@ class ChartVisualizationsModal extends Modal {
 
 		// Initial chart load
 		updateChart();
+	}
+
+	formatComparisonData(comparisonData: { label: string; current: number; previous: number; change: number; changePercent: number }[], period: string): { label: string; value: number }[] {
+		const result: { label: string; value: number }[] = [];
+		
+		comparisonData.forEach(item => {
+			// Current period values
+			result.push({
+				label: `Current ${period} ${item.label}`,
+				value: item.current
+			});
+			
+			// Previous period values  
+			result.push({
+				label: `Previous ${period} ${item.label}`,
+				value: item.previous
+			});
+		});
+
+		// Add change percentages as separate entries
+		comparisonData.forEach(item => {
+			if (item.changePercent !== 0) {
+				result.push({
+					label: `${item.label} Change (%)`,
+					value: Math.abs(item.changePercent)
+				});
+			}
+		});
+
+		return result;
 	}
 
 	onClose() {
