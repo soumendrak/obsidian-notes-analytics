@@ -384,19 +384,240 @@ input[type="date"] {
 }
 
 /* High contrast mode support */
-@media (prefers-contrast: high) {
+/* ===== MOBILE RESPONSIVENESS ===== */
+/* Base responsive breakpoints */
+@media (max-width: 768px) {
+    /* Modal adjustments for mobile */
+    .analytics-dashboard-modal .modal-content {
+        width: 100vw !important;
+        height: 100vh !important;
+        max-width: none !important;
+        max-height: none !important;
+        margin: 0 !important;
+        padding: 10px !important;
+    }
+
+    /* Dashboard container mobile layout */
+    .dashboard-container {
+        padding: 15px 10px !important;
+    }
+
+    /* Filters section mobile layout */
+    .filters-row {
+        flex-direction: column !important;
+        gap: 15px !important;
+    }
+
+    .filter-group {
+        width: 100% !important;
+        margin-bottom: 10px;
+    }
+
+    .filter-group label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: 600;
+    }
+
+    .filter-select,
+    .date-input {
+        width: 100% !important;
+        min-height: 44px;
+        font-size: 16px; /* Prevents zoom on iOS */
+    }
+
+    /* Metrics grid mobile layout */
+    .metrics-grid {
+        grid-template-columns: 1fr !important;
+        gap: 15px !important;
+    }
+
+    /* Metric cards mobile adjustments */
     .metric-card {
-        border: 2px solid var(--text-normal);
+        min-height: auto !important;
+        padding: 15px !important;
     }
-    
-    button,
+
+    .metric-header {
+        flex-direction: column !important;
+        gap: 10px !important;
+    }
+
+    .metric-title-area {
+        text-align: center;
+    }
+
+    .metric-title {
+        font-size: 16px !important;
+    }
+
+    .metric-description {
+        font-size: 14px !important;
+    }
+
+    /* Chart type selector mobile */
+    .chart-type-selector {
+        flex-wrap: wrap !important;
+        justify-content: center !important;
+        gap: 8px !important;
+    }
+
     .chart-type-btn {
-        border: 2px solid var(--text-normal);
+        min-width: 60px !important;
+        padding: 8px 12px !important;
+        font-size: 12px !important;
     }
-    
-    .loading-spinner,
-    .chart-loading-spinner {
-        border: 2px solid var(--text-normal);
+
+    /* Chart container mobile */
+    .metric-chart-container {
+        min-height: 250px !important;
+    }
+
+    .metric-chart {
+        width: 100% !important;
+        height: auto !important;
+        max-width: 100% !important;
+    }
+
+    /* Chart modal mobile */
+    .chart-header {
+        flex-direction: column !important;
+        gap: 15px !important;
+    }
+
+    .chart-controls {
+        flex-direction: column !important;
+        gap: 10px !important;
+    }
+
+    .control-group {
+        width: 100% !important;
+    }
+
+    .export-controls {
+        flex-wrap: wrap !important;
+        justify-content: center !important;
+        gap: 8px !important;
+    }
+
+    .export-controls button {
+        min-width: 60px !important;
+        padding: 8px 12px !important;
+        font-size: 12px !important;
+    }
+
+    /* Zoom button mobile */
+    .zoom-btn {
+        padding: 6px 10px !important;
+        font-size: 14px !important;
+    }
+}
+
+/* Tablet responsiveness */
+@media (max-width: 1024px) and (min-width: 769px) {
+    .metrics-grid {
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 20px !important;
+    }
+
+    .dashboard-container {
+        padding: 20px 15px !important;
+    }
+
+    .filters-row {
+        flex-wrap: wrap !important;
+        gap: 15px !important;
+    }
+
+    .metric-card {
+        min-height: 300px !important;
+    }
+}
+
+/* Touch-friendly improvements */
+@media (max-width: 768px) {
+    /* Ensure all interactive elements are touch-friendly */
+    button,
+    .chart-type-btn,
+    select,
+    input {
+        min-height: 44px !important;
+        min-width: 44px !important;
+        touch-action: manipulation;
+    }
+
+    /* Increase spacing for better touch targets */
+    .chart-type-selector {
+        gap: 12px !important;
+    }
+
+    .error-actions {
+        gap: 12px !important;
+    }
+
+    /* Improve text readability on mobile */
+    .loading-text h3 {
+        font-size: 18px !important;
+    }
+
+    .loading-text p {
+        font-size: 16px !important;
+        line-height: 1.5 !important;
+    }
+
+    .error-state h3 {
+        font-size: 18px !important;
+    }
+
+    .error-state p {
+        font-size: 16px !important;
+        line-height: 1.5 !important;
+    }
+}
+
+/* Landscape mobile adjustments */
+@media (max-width: 768px) and (orientation: landscape) {
+    .analytics-dashboard-modal .modal-content {
+        padding: 8px !important;
+    }
+
+    .dashboard-container {
+        padding: 10px 8px !important;
+    }
+
+    .metrics-grid {
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 10px !important;
+    }
+
+    .metric-card {
+        min-height: 250px !important;
+        padding: 10px !important;
+    }
+
+    .metric-chart-container {
+        min-height: 180px !important;
+    }
+}
+
+/* Print styles for mobile */
+@media print {
+    .analytics-dashboard-modal,
+    .chart-visualizations-modal {
+        width: 100% !important;
+        height: auto !important;
+        box-shadow: none !important;
+    }
+
+    .export-controls,
+    .zoom-btn,
+    .chart-type-selector {
+        display: none !important;
+    }
+
+    .metric-card {
+        break-inside: avoid;
+        margin-bottom: 20px;
     }
 }
 

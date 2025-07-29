@@ -1,4 +1,8 @@
 import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, moment } from 'obsidian';
+import { I18nService } from './src/i18n';
+import { AdvancedAnalyticsService } from './src/advancedAnalytics';
+import { ExportService } from './src/exportService';
+import { HelpService, HelpModal } from './src/helpService';
 
 // Enhanced data validation utilities
 class DataValidator {
@@ -331,6 +335,27 @@ interface NotesAnalyticsSettings {
 	dailyWordGoal: number;
 	weeklyFileGoal: number;
 	monthlyWordGoal: number;
+	language: string;
+	theme: 'auto' | 'light' | 'dark' | 'custom';
+	excludePatterns: string[];
+	includeFolders: string[];
+	excludeFolders: string[];
+	enableAdvancedAnalytics: boolean;
+	chartColors: {
+		primary: string;
+		secondary: string;
+		accent: string;
+		background: string;
+	};
+	autoRefreshInterval: number;
+	showNotifications: boolean;
+	enableKeyboardShortcuts: boolean;
+	compactView: boolean;
+	showGoalProgress: boolean;
+	dateRangePresets: Array<{
+		name: string;
+		days: number;
+	}>;
 }
 
 const DEFAULT_SETTINGS: NotesAnalyticsSettings = {
@@ -342,7 +367,30 @@ const DEFAULT_SETTINGS: NotesAnalyticsSettings = {
 	enableCustomDateRange: true,
 	dailyWordGoal: 500,
 	weeklyFileGoal: 7,
-	monthlyWordGoal: 15000
+	monthlyWordGoal: 15000,
+	language: 'en',
+	theme: 'auto',
+	excludePatterns: ['*.tmp', '*.bak', '.trash/**'],
+	includeFolders: [],
+	excludeFolders: ['.trash', '.git'],
+	enableAdvancedAnalytics: true,
+	chartColors: {
+		primary: '#007acc',
+		secondary: '#28a745',
+		accent: '#dc3545',
+		background: '#f8f9fa'
+	},
+	autoRefreshInterval: 300000, // 5 minutes
+	showNotifications: true,
+	enableKeyboardShortcuts: true,
+	compactView: false,
+	showGoalProgress: true,
+	dateRangePresets: [
+		{ name: 'Last 7 days', days: 7 },
+		{ name: 'Last 30 days', days: 30 },
+		{ name: 'Last 90 days', days: 90 },
+		{ name: 'Last year', days: 365 }
+	]
 }
 
 interface WordCountData {
@@ -1089,6 +1137,11 @@ export default class NotesAnalyticsPlugin extends Plugin {
 	private lastFileModificationTime: number = 0;
 	private debouncedCacheInvalidation: number | undefined;
 	private statusBarUpdateInProgress: boolean = false;
+	private i18n: I18nService;
+	private advancedAnalytics: AdvancedAnalyticsService;
+	private exportService: ExportService;
+	private helpService: HelpService;
+	private helpModal: HelpModal;
 
 	/**
 	 * Setup keyboard shortcuts for accessibility
@@ -1131,7 +1184,7 @@ export default class NotesAnalyticsPlugin extends Plugin {
 			hotkeys: [{ modifiers: ['Ctrl', 'Shift'], key: 'r' }],
 			callback: async () => {
 				try {
-					const analytics = await this.getAllAnalytics();
+					const analytics = await this.getAnalyticsSummary();
 					new Notice('Analytics report generated in console');
 					console.log('Full Analytics Report:', analytics);
 				} catch (error) {
@@ -1156,6 +1209,21 @@ export default class NotesAnalyticsPlugin extends Plugin {
 				}
 			}
 		});
+
+		// Add keyboard shortcut for help
+		this.addCommand({
+			id: 'show-help',
+			name: 'Show Help & Documentation',
+			hotkeys: [{ modifiers: ['Ctrl', 'Shift'], key: 'h' }],
+			callback: () => {
+				try {
+					this.helpModal.showHelp();
+				} catch (error) {
+					console.error('[Notes Analytics] Error showing help:', error);
+					new Notice('Failed to show help. Please try again.');
+				}
+			}
+		});
 	}
 
 	async onload() {
@@ -1171,6 +1239,18 @@ export default class NotesAnalyticsPlugin extends Plugin {
 			
 			// Load settings with validation
 			await this.loadSettings();
+
+			// Initialize i18n service
+			this.i18n = new I18nService(this.settings.language);
+
+			// Initialize advanced services
+			this.advancedAnalytics = new AdvancedAnalyticsService(this.app);
+			this.exportService = new ExportService(this.app);
+			this.helpService = new HelpService();
+			this.helpModal = new HelpModal(this.app);
+
+			// Setup keyboard shortcuts for accessibility
+			this.setupKeyboardShortcuts();
 
 			let statusBarItemEl: HTMLElement | null = null;
 
