@@ -133,15 +133,17 @@ class ChartRenderer {
 			ctx.lineTo(x, chartArea.y + chartArea.height);
 			ctx.stroke();
 
-			// X-axis label
-			ctx.fillStyle = 'var(--text-muted)';
-			ctx.font = '12px var(--font-interface)';
-			ctx.textAlign = 'center';
-			ctx.save();
-			ctx.translate(x, chartArea.y + chartArea.height + 20);
-			ctx.rotate(-Math.PI / 4);
-			ctx.fillText(label, 0, 0);
-			ctx.restore();
+			// X-axis label (check for valid label)
+			if (label && label !== 'undefined') {
+				ctx.fillStyle = 'var(--text-muted)';
+				ctx.font = '12px var(--font-interface)';
+				ctx.textAlign = 'center';
+				ctx.save();
+				ctx.translate(x, chartArea.y + chartArea.height + 20);
+				ctx.rotate(-Math.PI / 4);
+				ctx.fillText(label, 0, 0);
+				ctx.restore();
+			}
 		});
 	}
 
@@ -660,6 +662,12 @@ export default class NotesAnalyticsPlugin extends Plugin {
 		});
 		ribbonIconEl.addClass('notes-analytics-ribbon-class');
 
+		// Add ribbon icon for dashboard
+		const dashboardRibbonIconEl = this.addRibbonIcon('layout-dashboard', 'Analytics Dashboard', (evt: MouseEvent) => {
+			new AnalyticsDashboardModal(this.app, this).open();
+		});
+		dashboardRibbonIconEl.addClass('notes-analytics-ribbon-class');
+
 		// Add status bar item
 		const statusBarItemEl = this.addStatusBarItem();
 		this.updateStatusBar(statusBarItemEl);
@@ -679,6 +687,14 @@ export default class NotesAnalyticsPlugin extends Plugin {
 			name: 'Show Chart Visualizations',
 			callback: () => {
 				new ChartVisualizationsModal(this.app, this).open();
+			}
+		});
+
+		this.addCommand({
+			id: 'show-analytics-dashboard',
+			name: 'Show Analytics Dashboard',
+			callback: () => {
+				new AnalyticsDashboardModal(this.app, this).open();
 			}
 		});
 
@@ -1381,6 +1397,590 @@ export default class NotesAnalyticsPlugin extends Plugin {
 			};
 		}).sort((a, b) => a.label.localeCompare(b.label));
 	}
+
+	// Writing Streak Data
+	async getWritingStreakData(): Promise<{ currentStreak: number; longestStreak: number; thisMonthDays: number }> {
+		const files = this.app.vault.getMarkdownFiles();
+		const writingDays = new Set<string>();
+		const thisMonth = moment().format('YYYY-MM');
+
+		// Collect all days with writing activity (creation or modification)
+		for (const file of files) {
+			const modifiedDate = moment(file.stat.mtime).format('YYYY-MM-DD');
+			const createdDate = moment(file.stat.ctime).format('YYYY-MM-DD');
+			
+			writingDays.add(modifiedDate);
+			writingDays.add(createdDate);
+		}
+
+		const sortedDays = Array.from(writingDays).sort();
+		
+		// Calculate current streak
+		let currentStreak = 0;
+		let longestStreak = 0;
+		let tempStreak = 0;
+		const today = moment().format('YYYY-MM-DD');
+		const yesterday = moment().subtract(1, 'day').format('YYYY-MM-DD');
+
+		// Check if we have activity today or yesterday (streak continues)
+		const hasRecentActivity = writingDays.has(today) || writingDays.has(yesterday);
+		
+		if (hasRecentActivity) {
+			// Count backwards from today/yesterday
+			let checkDate = writingDays.has(today) ? moment() : moment().subtract(1, 'day');
+			
+			while (writingDays.has(checkDate.format('YYYY-MM-DD'))) {
+				currentStreak++;
+				checkDate.subtract(1, 'day');
+			}
+		}
+
+		// Calculate longest streak
+		for (let i = 0; i < sortedDays.length; i++) {
+			const currentDay = sortedDays[i];
+			const previousDay = i > 0 ? sortedDays[i - 1] : null;
+			
+			if (previousDay && moment(currentDay).diff(moment(previousDay), 'days') === 1) {
+				tempStreak++;
+			} else {
+				tempStreak = 1;
+			}
+			
+			longestStreak = Math.max(longestStreak, tempStreak);
+		}
+
+		// Calculate this month activity days
+		const thisMonthDays = Array.from(writingDays).filter(day => day.startsWith(thisMonth)).length;
+
+		return {
+			currentStreak,
+			longestStreak,
+			thisMonthDays
+		};
+	}
+}
+
+// Comprehensive Analytics Dashboard Modal
+class AnalyticsDashboardModal extends Modal {
+	plugin: NotesAnalyticsPlugin;
+	private currentTimeFrame: string = 'month';
+	private currentDateRange: { start: string; end: string } | null = null;
+	private dashboardContainer: HTMLElement;
+	private filtersContainer: HTMLElement;
+	private metricsGrid: HTMLElement;
+	private zoomedChart: HTMLElement | null = null;
+	private chartRenderers: Map<string, ChartRenderer> = new Map();
+
+	constructor(app: App, plugin: NotesAnalyticsPlugin) {
+		super(app);
+		this.plugin = plugin;
+	}
+
+	onOpen() {
+		const { contentEl } = this;
+		contentEl.empty();
+		
+		// Apply the dashboard modal class to the modal container itself
+		this.modalEl.addClass('analytics-dashboard-modal');
+		
+		// Set the modal to full width and height
+		this.modalEl.style.width = '100vw';
+		this.modalEl.style.height = '100vh';
+		this.modalEl.style.maxWidth = 'none';
+		this.modalEl.style.maxHeight = 'none';
+		this.modalEl.style.left = '0';
+		this.modalEl.style.top = '0';
+		this.modalEl.style.transform = 'none';
+		this.modalEl.style.margin = '0';
+		
+		// Dashboard header
+		const headerDiv = contentEl.createDiv('dashboard-header');
+		headerDiv.createEl('h2', { text: 'Analytics Dashboard', cls: 'dashboard-title' });
+		headerDiv.createEl('p', { text: 'Comprehensive view of your writing analytics', cls: 'dashboard-subtitle' });
+
+		// Filters section
+		this.createFiltersSection(contentEl);
+
+		// Main dashboard container
+		this.dashboardContainer = contentEl.createDiv('dashboard-container');
+		this.createMetricsGrid();
+
+		// Load initial data
+		this.refreshDashboard();
+	}
+
+	private createFiltersSection(container: HTMLElement) {
+		this.filtersContainer = container.createDiv('filters-section');
+		
+		const filtersRow = this.filtersContainer.createDiv('filters-row');
+
+		// Time frame filter
+		const timeFrameDiv = filtersRow.createDiv('filter-group');
+		timeFrameDiv.createEl('label', { text: 'Time Frame:' });
+		const timeFrameSelect = timeFrameDiv.createEl('select', { cls: 'filter-select' });
+		
+		const timeFrames = [
+			{ value: 'day', text: 'This Day' },
+			{ value: 'week', text: 'This Week' },
+			{ value: 'month', text: 'This Month' },
+			{ value: 'quarter', text: 'This Quarter' },
+			{ value: 'year', text: 'This Year' },
+			{ value: 'all', text: 'All Time' },
+			{ value: 'custom', text: 'Custom Range' }
+		];
+
+		timeFrames.forEach(frame => {
+			const option = timeFrameSelect.createEl('option', { value: frame.value, text: frame.text });
+			if (frame.value === this.currentTimeFrame) option.selected = true;
+		});
+
+		timeFrameSelect.onchange = () => {
+			this.currentTimeFrame = timeFrameSelect.value;
+			if (this.currentTimeFrame === 'custom') {
+				this.showCustomDatePicker();
+			} else {
+				this.currentDateRange = null;
+				this.refreshDashboard();
+			}
+		};
+
+		// Custom date range inputs (initially hidden)
+		const customDateDiv = filtersRow.createDiv('filter-group custom-date-range');
+		customDateDiv.style.display = 'none';
+		
+		customDateDiv.createEl('label', { text: 'From:' });
+		const startDateInput = customDateDiv.createEl('input', { type: 'date', cls: 'date-input' });
+		
+		customDateDiv.createEl('label', { text: 'To:' });
+		const endDateInput = customDateDiv.createEl('input', { type: 'date', cls: 'date-input' });
+
+		const applyDateBtn = customDateDiv.createEl('button', { text: 'Apply', cls: 'mod-cta' });
+		applyDateBtn.onclick = () => {
+			if (startDateInput.value && endDateInput.value) {
+				this.currentDateRange = {
+					start: startDateInput.value,
+					end: endDateInput.value
+				};
+				this.refreshDashboard();
+			}
+		};
+
+		// Refresh button
+		const refreshBtn = filtersRow.createDiv('filter-group').createEl('button', { 
+			text: '↻ Refresh', 
+			cls: 'mod-cta refresh-btn' 
+		});
+		refreshBtn.onclick = () => this.refreshDashboard();
+	}
+
+	private showCustomDatePicker() {
+		const customDateDiv = this.filtersContainer.querySelector('.custom-date-range') as HTMLElement;
+		customDateDiv.style.display = this.currentTimeFrame === 'custom' ? 'flex' : 'none';
+	}
+
+	private createMetricsGrid() {
+		this.metricsGrid = this.dashboardContainer.createDiv('metrics-grid');
+
+		// Define all metrics with their configurations
+		const metrics = [
+			{
+				id: 'words',
+				title: 'Word Count Trends',
+				description: 'Track your daily writing progress',
+				color: '#007acc',
+				chartTypes: ['line', 'bar', 'area']
+			},
+			{
+				id: 'files',
+				title: 'Files Created',
+				description: 'Monitor file creation patterns',
+				color: '#28a745',
+				chartTypes: ['line', 'bar', 'area']
+			},
+			{
+				id: 'avgWords',
+				title: 'Average Words per File',
+				description: 'Track writing depth and quality',
+				color: '#ffc107',
+				chartTypes: ['line', 'bar', 'area']
+			},
+			{
+				id: 'cumulative',
+				title: 'Cumulative Progress',
+				description: 'See your total writing growth',
+				color: '#6f42c1',
+				chartTypes: ['line', 'area']
+			},
+			{
+				id: 'streaks',
+				title: 'Writing Streaks',
+				description: 'Track consistency and habits',
+				color: '#fd7e14',
+				chartTypes: ['line', 'bar']
+			},
+			{
+				id: 'goals',
+				title: 'Goal Progress',
+				description: 'Monitor writing goals achievement',
+				color: '#dc3545',
+				chartTypes: ['pie', 'bar']
+			},
+			{
+				id: 'heatmap',
+				title: 'Activity Heatmap',
+				description: 'Visualize writing activity patterns',
+				color: '#28a745',
+				chartTypes: ['heatmap']
+			},
+			{
+				id: 'comparison',
+				title: 'Period Comparison',
+				description: 'Compare current vs previous periods',
+				color: '#17a2b8',
+				chartTypes: ['bar', 'line']
+			}
+		];
+
+		metrics.forEach(metric => {
+			const metricCard = this.createMetricCard(metric);
+			this.metricsGrid.appendChild(metricCard);
+		});
+	}
+
+	private createMetricCard(metric: any): HTMLElement {
+		const card = createDiv('metric-card');
+		card.setAttribute('data-metric', metric.id);
+
+		// Card header
+		const header = card.createDiv('metric-header');
+		const titleDiv = header.createDiv('metric-title-area');
+		titleDiv.createEl('h3', { text: metric.title, cls: 'metric-title' });
+		titleDiv.createEl('p', { text: metric.description, cls: 'metric-description' });
+
+		// Chart type selector
+		const chartTypeDiv = header.createDiv('chart-type-selector');
+		metric.chartTypes.forEach((type: string, index: number) => {
+			const btn = chartTypeDiv.createEl('button', { 
+				text: type.charAt(0).toUpperCase() + type.slice(1),
+				cls: index === 0 ? 'chart-type-btn active' : 'chart-type-btn'
+			});
+			btn.onclick = () => {
+				chartTypeDiv.querySelectorAll('.chart-type-btn').forEach(b => b.removeClass('active'));
+				btn.addClass('active');
+				this.renderMetricChart(metric.id, type);
+			};
+		});
+
+		// Zoom button
+		const zoomBtn = header.createEl('button', { text: '⛶', cls: 'zoom-btn', title: 'Zoom to full view' });
+		zoomBtn.onclick = () => this.zoomToChart(metric.id);
+
+		// Chart container
+		const chartContainer = card.createDiv('metric-chart-container');
+		const canvas = chartContainer.createEl('canvas', { cls: 'metric-chart' });
+		canvas.width = 350;
+		canvas.height = 200;
+
+		// Create renderer
+		const renderer = new ChartRenderer(canvas, 350, 200);
+		this.chartRenderers.set(metric.id, renderer);
+
+		return card;
+	}
+
+	private async renderMetricChart(metricId: string, chartType: string) {
+		const renderer = this.chartRenderers.get(metricId);
+		if (!renderer) return;
+
+		try {
+			let data: any[] = [];
+			let title = '';
+			let color = '#007acc';
+
+			// Get the metric configuration
+			const metricCard = this.metricsGrid.querySelector(`[data-metric="${metricId}"]`) as HTMLElement;
+			const metricConfig = this.getMetricConfig(metricId);
+			color = metricConfig.color;
+
+			// Convert timeframe to valid type
+			const validTimeFrame = this.getValidTimeFrame(this.currentTimeFrame);
+
+			switch (metricId) {
+				case 'words':
+					const wordData = await this.plugin.getWordCountAnalytics(validTimeFrame);
+					data = wordData.filter(d => d.date && d.date !== 'undefined')
+						.map(d => ({ label: d.date, value: d.totalWords || 0 }));
+					title = 'Word Count Progress';
+					break;
+				case 'files':
+					const fileData = await this.plugin.getWordCountAnalytics(validTimeFrame);
+					data = fileData.filter(d => d.date && d.date !== 'undefined')
+						.map(d => ({ label: d.date, value: d.filesCreated || 0 }));
+					title = 'Files Created';
+					break;
+				case 'avgWords':
+					const avgData = await this.plugin.getWordCountAnalytics(validTimeFrame);
+					data = avgData.filter(d => d.date && d.date !== 'undefined')
+						.map(d => ({ label: d.date, value: d.avgWordsPerFile || 0 }));
+					title = 'Average Words per File';
+					break;
+				case 'cumulative':
+					const cumData = await this.plugin.getWordCountAnalytics(validTimeFrame);
+					data = cumData.filter(d => d.date && d.date !== 'undefined')
+						.map(d => ({ label: d.date, value: d.cumulativeWords || 0 }));
+					title = 'Cumulative Word Count';
+					break;
+				case 'streaks':
+					const streakData = await this.plugin.getWritingStreakData();
+					data = [
+						{ label: 'Current Streak', value: streakData.currentStreak },
+						{ label: 'Longest Streak', value: streakData.longestStreak },
+						{ label: 'This Month Activity', value: streakData.thisMonthDays }
+					];
+					title = 'Writing Streaks';
+					break;
+				case 'goals':
+					data = await this.plugin.getWritingGoalsProgress();
+					title = 'Writing Goals Progress';
+					break;
+				case 'heatmap':
+					data = await this.plugin.getHeatmapCalendarData();
+					title = 'Writing Activity Heatmap';
+					chartType = 'heatmap'; // Force heatmap rendering
+					break;
+				case 'comparison':
+					const compData = await this.plugin.getComparisonData('month');
+					data = this.formatComparisonData(compData, 'Month');
+					title = 'This Month vs Last Month';
+					break;
+			}
+
+			// Render based on chart type
+			switch (chartType) {
+				case 'line':
+					renderer.renderLineChart(data, title, color);
+					break;
+				case 'bar':
+					renderer.renderBarChart(data, title, color);
+					break;
+				case 'area':
+					renderer.renderAreaChart(data, title, color);
+					break;
+				case 'pie':
+					renderer.renderPieChart(data, title);
+					break;
+				case 'heatmap':
+					renderer.renderHeatmapCalendar(data, title, color);
+					break;
+			}
+		} catch (error) {
+			console.error(`Error rendering ${metricId} chart:`, error);
+		}
+	}
+
+	private getValidTimeFrame(timeFrame: string): 'year' | 'month' | 'week' | 'day' {
+		switch (timeFrame) {
+			case 'year':
+			case 'quarter':
+				return 'year';
+			case 'month':
+				return 'month';
+			case 'week':
+				return 'week';
+			case 'day':
+				return 'day';
+			default:
+				return 'month';
+		}
+	}
+
+	private getMetricConfig(metricId: string) {
+		const configs: Record<string, any> = {
+			words: { color: '#007acc', title: 'Word Count Trends' },
+			files: { color: '#28a745', title: 'Files Created' },
+			avgWords: { color: '#ffc107', title: 'Average Words per File' },
+			cumulative: { color: '#6f42c1', title: 'Cumulative Progress' },
+			streaks: { color: '#fd7e14', title: 'Writing Streaks' },
+			goals: { color: '#dc3545', title: 'Goal Progress' },
+			heatmap: { color: '#28a745', title: 'Activity Heatmap' },
+			comparison: { color: '#17a2b8', title: 'Period Comparison' }
+		};
+		return configs[metricId] || { color: '#007acc', title: 'Chart' };
+	}
+
+	private formatComparisonData(comparisonData: any, period: string): { label: string; value: number }[] {
+		return [
+			{ label: `Current ${period}`, value: comparisonData.current },
+			{ label: `Previous ${period}`, value: comparisonData.previous }
+		];
+	}
+
+	private async refreshDashboard() {
+		// Show loading state
+		this.metricsGrid.addClass('loading');
+
+		try {
+			// Refresh all metric charts
+			const metricCards = this.metricsGrid.querySelectorAll('.metric-card');
+			
+			// Convert NodeList to Array for iteration
+			Array.from(metricCards).forEach(async (card) => {
+				const metricId = card.getAttribute('data-metric');
+				const activeChartType = card.querySelector('.chart-type-btn.active')?.textContent?.toLowerCase() || 'line';
+				
+				if (metricId) {
+					await this.renderMetricChart(metricId, activeChartType);
+				}
+			});
+		} catch (error) {
+			console.error('Error refreshing dashboard:', error);
+			new Notice('Error refreshing dashboard data');
+		} finally {
+			this.metricsGrid.removeClass('loading');
+		}
+	}
+
+	private zoomToChart(metricId: string) {
+		if (this.zoomedChart) {
+			this.exitZoomMode();
+			return;
+		}
+
+		// Create zoomed overlay
+		const overlay = this.dashboardContainer.createDiv('zoomed-chart-overlay');
+		
+		// Header with title and close button
+		const header = overlay.createDiv('zoomed-header');
+		const metricConfig = this.getMetricConfig(metricId);
+		header.createEl('h2', { text: metricConfig.title, cls: 'zoomed-title' });
+		
+		const closeBtn = header.createEl('button', { text: '✕', cls: 'close-zoom-btn' });
+		closeBtn.onclick = () => this.exitZoomMode();
+
+		// Chart type selector for zoomed view
+		const chartTypeDiv = header.createDiv('zoomed-chart-types');
+		const originalCard = this.metricsGrid.querySelector(`[data-metric="${metricId}"]`);
+		const originalButtons = originalCard?.querySelectorAll('.chart-type-btn');
+		
+		originalButtons?.forEach(btn => {
+			const newBtn = chartTypeDiv.createEl('button', { 
+				text: btn.textContent || '',
+				cls: btn.hasClass('active') ? 'chart-type-btn active' : 'chart-type-btn'
+			});
+			newBtn.onclick = () => {
+				chartTypeDiv.querySelectorAll('.chart-type-btn').forEach(b => b.removeClass('active'));
+				newBtn.addClass('active');
+				this.renderZoomedChart(metricId, newBtn.textContent?.toLowerCase() || 'line');
+			};
+		});
+
+		// Large chart container
+		const chartContainer = overlay.createDiv('zoomed-chart-container');
+		const canvas = chartContainer.createEl('canvas', { cls: 'zoomed-chart' });
+		canvas.width = 1000;
+		canvas.height = 600;
+
+		// Create large renderer
+		const renderer = new ChartRenderer(canvas, 1000, 600);
+		this.zoomedChart = overlay;
+
+		// Render with active chart type
+		const activeType = originalCard?.querySelector('.chart-type-btn.active')?.textContent?.toLowerCase() || 'line';
+		this.renderZoomedChart(metricId, activeType, renderer);
+	}
+
+	private async renderZoomedChart(metricId: string, chartType: string, customRenderer?: ChartRenderer) {
+		if (!this.zoomedChart) return;
+
+		const canvas = this.zoomedChart.querySelector('canvas') as HTMLCanvasElement;
+		const renderer = customRenderer || new ChartRenderer(canvas, 1000, 600);
+
+		// Get fresh data for the zoomed view
+		const metricConfig = this.getMetricConfig(metricId);
+		let data: any[] = [];
+		let title = metricConfig.title;
+		const validTimeFrame = this.getValidTimeFrame(this.currentTimeFrame);
+
+		switch (metricId) {
+			case 'words':
+				const wordData = await this.plugin.getWordCountAnalytics(validTimeFrame);
+				data = wordData.filter(d => d.date && d.date !== 'undefined')
+					.map(d => ({ label: d.date, value: d.totalWords || 0 }));
+				break;
+			case 'files':
+				const fileData = await this.plugin.getWordCountAnalytics(validTimeFrame);
+				data = fileData.filter(d => d.date && d.date !== 'undefined')
+					.map(d => ({ label: d.date, value: d.filesCreated || 0 }));
+				break;
+			case 'avgWords':
+				const avgData = await this.plugin.getWordCountAnalytics(validTimeFrame);
+				data = avgData.filter(d => d.date && d.date !== 'undefined')
+					.map(d => ({ label: d.date, value: d.avgWordsPerFile || 0 }));
+				break;
+			case 'cumulative':
+				const cumData = await this.plugin.getWordCountAnalytics(validTimeFrame);
+				data = cumData.filter(d => d.date && d.date !== 'undefined')
+					.map(d => ({ label: d.date, value: d.cumulativeWords || 0 }));
+				break;
+			case 'streaks':
+				const streakData = await this.plugin.getWritingStreakData();
+				data = [
+					{ label: 'Current Streak', value: streakData.currentStreak },
+					{ label: 'Longest Streak', value: streakData.longestStreak },
+					{ label: 'This Month Activity', value: streakData.thisMonthDays }
+				];
+				break;
+			case 'goals':
+				data = await this.plugin.getWritingGoalsProgress();
+				break;
+			case 'heatmap':
+				data = await this.plugin.getHeatmapCalendarData();
+				chartType = 'heatmap';
+				break;
+			case 'comparison':
+				const compData = await this.plugin.getComparisonData('month');
+				data = this.formatComparisonData(compData, 'Month');
+				break;
+		}
+
+		// Render the large chart
+		switch (chartType) {
+			case 'line':
+				renderer.renderLineChart(data, title, metricConfig.color);
+				break;
+			case 'bar':
+				renderer.renderBarChart(data, title, metricConfig.color);
+				break;
+			case 'area':
+				renderer.renderAreaChart(data, title, metricConfig.color);
+				break;
+			case 'pie':
+				renderer.renderPieChart(data, title);
+				break;
+			case 'heatmap':
+				renderer.renderHeatmapCalendar(data, title, metricConfig.color);
+				break;
+		}
+	}
+
+	private exitZoomMode() {
+		if (this.zoomedChart) {
+			this.zoomedChart.remove();
+			this.zoomedChart = null;
+		}
+	}
+
+	onClose() {
+		// Remove the CSS class from modal
+		this.modalEl.removeClass('analytics-dashboard-modal');
+		
+		// Clean up chart renderers
+		this.chartRenderers.forEach(renderer => {
+			// Clean up if possible - ChartRenderer doesn't have destroy method yet
+			// Just clear the map
+		});
+		this.chartRenderers.clear();
+	}
 }
 
 class ChartVisualizationsModal extends Modal {
@@ -1539,10 +2139,11 @@ class ChartVisualizationsModal extends Modal {
 						chartContainer.createEl('p', { text: 'No data available for chart' });
 						return;
 					}
-					chartData = data.reverse().map(item => ({
-						label: item.date,
-						value: item[metric as keyof WordCountData] as number
-					}));
+					chartData = data.filter(item => item.date && item.date !== 'undefined')
+						.reverse().map(item => ({
+							label: item.date,
+							value: (item[metric as keyof WordCountData] as number) || 0
+						}));
 				}
 
 				chartContainer.removeChild(loadingMsg);

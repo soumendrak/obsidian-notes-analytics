@@ -1,14 +1,25 @@
 # Notes Analytics Plugin for Obsidian
 
-A specialized analytics plugin for Obsidian that provides interactive chart visualizations for your note-taking patterns and writing productivity.
+A specialized analytics plugin for Obsidian that provides interactive chart visualizations for your note-taking patterns and writing productivity, featuring a comprehensive analytics dashboard for deep insights.
 
 ## Features
 
-### 📊 Interactive Chart Visualizations
+### 📊 Comprehensive Analytics Dashboard
+- **Single Pane of Truth**: View all your analytics metrics in one unified dashboard
+- **8 Different Metric Categories**: Word count trends, files created, average words per file, cumulative progress, writing streaks, goal progress, activity heatmap, and period comparisons
+- **Interactive Chart Controls**: Switch between line, bar, area, and pie charts for each metric
+- **Zoom-to-Detail**: Click the zoom button on any chart to view it in full-screen detail
+- **Smart Filtering**: Filter data by time frame (week, month, quarter, year, all time, or custom ranges)
+- **Real-time Updates**: Refresh all metrics simultaneously with one click
+- **Responsive Design**: Optimized for various screen sizes and layouts
+- **Professional Interface**: Clean, modern design that adapts to your Obsidian theme
+
+### 📈 Interactive Chart Visualizations
 - **Line Charts**: Visualize trends over time with smooth line graphs
 - **Bar Charts**: Compare data across periods with clear bar visualizations
 - **Area Charts**: Filled area charts showing data trends with gradient fills
 - **Pie Charts**: Circular charts perfect for showing proportional data
+- **Heatmap Calendar**: GitHub-style calendar showing daily writing activity intensity
 - **Multiple Metrics**: Chart total words, files created, cumulative file count, average words per file, and cumulative data
 - **Flexible Time Frames**: View daily, weekly, monthly, or yearly data
 - **Custom Date Ranges**: Select specific date ranges for targeted analysis
@@ -30,16 +41,34 @@ A specialized analytics plugin for Obsidian that provides interactive chart visu
 
 ## Usage
 
-### Accessing Chart Analytics
-1. **Ribbon Icon**: Click the bar chart icon in the left ribbon
-2. **Command Palette**: Use "Open Notes Analytics" or "Show Chart Visualizations" commands
+### Accessing Analytics
+1. **Dashboard**: Click the dashboard icon in the left ribbon for the comprehensive analytics dashboard
+2. **Individual Charts**: Click the bar chart icon in the left ribbon for single chart view
+3. **Command Palette**: Use "Show Analytics Dashboard" or "Show Chart Visualizations" commands
+
+### Dashboard Features
+The Analytics Dashboard provides:
+- **Grid Layout**: All metrics displayed in an organized grid with small preview charts
+- **Chart Type Switching**: Toggle between different chart types for each metric using buttons
+- **Time Frame Filtering**: Change the time period for all charts simultaneously
+- **Zoom Functionality**: Click the zoom icon (⛶) on any chart to view it in full-screen mode
+- **Smart Data**: Automatically adapts chart types based on data (e.g., heatmap always shows calendar view)
+- **Loading States**: Visual feedback when refreshing data across all metrics
+
+### Metrics Available
+1. **Word Count Trends**: Track your daily writing progress and patterns
+2. **Files Created**: Monitor file creation patterns and productivity
+3. **Average Words per File**: Track writing depth and quality metrics
+4. **Cumulative Progress**: Visualize your total writing growth over time
+5. **Writing Streaks**: Monitor consistency and writing habits
+6. **Goal Progress**: Track achievement of daily, weekly, and monthly writing goals
+7. **Activity Heatmap**: GitHub-style calendar showing daily activity intensity
+8. **Period Comparison**: Compare current vs previous periods (month, week, year)
 
 ### Chart Features
 Interactive data visualizations featuring:
-- **Line Charts**: Perfect for tracking trends and patterns over time
-- **Bar Charts**: Ideal for comparing data across different periods
+- **Smooth Animations**: Charts animate in with professional transition effects
 - **Dynamic Controls**: Switch between chart types, time frames, and metrics instantly
-- **Multiple Metrics**: Visualize total words, files created, cumulative file count, average words per file, or cumulative progress
 - **Responsive Design**: Charts adapt to your theme and display preferences
 - **Export Ready**: High-quality canvas-based charts for clear visualization
 
