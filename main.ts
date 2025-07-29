@@ -1520,7 +1520,7 @@ class AnalyticsDashboardModal extends Modal {
 		const timeFrameSelect = timeFrameDiv.createEl('select', { cls: 'filter-select' });
 		
 		const timeFrames = [
-			{ value: 'day', text: 'This Day' },
+			{ value: 'day', text: 'Today' },
 			{ value: 'week', text: 'This Week' },
 			{ value: 'month', text: 'This Month' },
 			{ value: 'quarter', text: 'This Quarter' },
