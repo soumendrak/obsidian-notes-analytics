@@ -1,5 +1,326 @@
 import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, moment } from 'obsidian';
 
+// Enhanced data validation utilities
+class DataValidator {
+	/**
+	 * Validates chart data structure and content
+	 */
+	static validateChartData(data: any[]): boolean {
+		if (!Array.isArray(data) || data.length === 0) {
+			return false;
+		}
+		
+		// Check if data has required properties
+		return data.every(item => 
+			item && 
+			typeof item === 'object' &&
+			(item.hasOwnProperty('label') || item.hasOwnProperty('date')) && 
+			item.hasOwnProperty('value') &&
+			item.label !== undefined &&
+			item.value !== undefined &&
+			!isNaN(Number(item.value)) &&
+			isFinite(Number(item.value))
+		);
+	}
+
+	/**
+	 * Sanitizes and filters chart data, removing invalid entries
+	 */
+	static sanitizeChartData(data: any[]): any[] {
+		if (!Array.isArray(data)) {
+			console.warn('[DataValidator] Invalid data provided, expected array');
+			return [];
+		}
+		
+		const sanitized = data.filter(item => {
+			if (!item || typeof item !== 'object') {
+				return false;
+			}
+			
+			// Ensure label exists and is not undefined
+			if (item.label === undefined || item.label === null) {
+				return false;
+			}
+			
+			// Ensure value exists and is a valid number
+			if (item.value === undefined || item.value === null || 
+				isNaN(Number(item.value)) || !isFinite(Number(item.value))) {
+				return false;
+			}
+			
+			return true;
+		}).map(item => ({
+			...item,
+			label: String(item.label).trim(),
+			value: Number(item.value)
+		}));
+
+		if (sanitized.length !== data.length) {
+			console.info(`[DataValidator] Filtered ${data.length - sanitized.length} invalid entries from chart data`);
+		}
+
+		return sanitized;
+	}
+
+	/**
+	 * Validates date range inputs
+	 */
+	static validateDateRange(startDate: string, endDate: string): boolean {
+		if (!startDate || !endDate || typeof startDate !== 'string' || typeof endDate !== 'string') {
+			return false;
+		}
+
+		const start = new Date(startDate);
+		const end = new Date(endDate);
+		
+		return !isNaN(start.getTime()) && !isNaN(end.getTime()) && start <= end;
+	}
+
+	/**
+	 * Validates file objects
+	 */
+	static validateFile(file: any): file is TFile {
+		return file && 
+			typeof file === 'object' &&
+			file.path && 
+			typeof file.path === 'string' &&
+			file.extension === 'md' &&
+			file.stat &&
+			typeof file.stat.ctime === 'number';
+	}
+
+	/**
+	 * Validates settings object structure
+	 */
+	static validateSettings(settings: any): boolean {
+		if (!settings || typeof settings !== 'object') {
+			return false;
+		}
+
+		// Check required properties exist and have correct types
+		const requiredStringFields = ['dateFormat', 'defaultChartType'];
+		const requiredBooleanFields = ['enableRealTimeUpdates', 'showAdvancedStats', 'enableChartExport', 'enableCustomDateRange'];
+		const requiredNumberFields = ['dailyWordGoal', 'weeklyFileGoal', 'monthlyWordGoal'];
+
+		for (const field of requiredStringFields) {
+			if (!settings.hasOwnProperty(field) || typeof settings[field] !== 'string') {
+				return false;
+			}
+		}
+
+		for (const field of requiredBooleanFields) {
+			if (!settings.hasOwnProperty(field) || typeof settings[field] !== 'boolean') {
+				return false;
+			}
+		}
+
+		for (const field of requiredNumberFields) {
+			if (!settings.hasOwnProperty(field) || typeof settings[field] !== 'number' || settings[field] < 0) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	 * Validates and sanitizes word count data
+	 */
+	static validateWordCountData(data: any[]): boolean {
+		if (!Array.isArray(data)) {
+			return false;
+		}
+
+		return data.every(item => 
+			item &&
+			typeof item === 'object' &&
+			typeof item.date === 'string' &&
+			typeof item.totalWords === 'number' &&
+			typeof item.filesCreated === 'number' &&
+			typeof item.avgWordsPerFile === 'number' &&
+			item.totalWords >= 0 &&
+			item.filesCreated >= 0 &&
+			item.avgWordsPerFile >= 0
+		);
+	}
+}
+
+// Enhanced cache system for analytics data with performance optimization
+class AnalyticsCache {
+	private cache: Map<string, { data: any; timestamp: number; ttl: number; size: number }> = new Map();
+	private readonly DEFAULT_TTL = 5 * 60 * 1000; // 5 minutes
+	private readonly MAX_CACHE_SIZE = 50; // Maximum number of cached items
+	private readonly MAX_MEMORY_MB = 10; // Maximum cache memory in MB
+	private hitCount = 0;
+	private missCount = 0;
+
+	/**
+	 * Set data in cache with TTL and size tracking
+	 */
+	set(key: string, data: any, ttl: number = this.DEFAULT_TTL): void {
+		// Calculate approximate data size
+		const dataSize = this.calculateDataSize(data);
+		
+		// Check if we need to evict items due to memory constraints
+		this.evictIfNecessary(dataSize);
+		
+		this.cache.set(key, {
+			data: JSON.parse(JSON.stringify(data)), // Deep clone to prevent mutations
+			timestamp: Date.now(),
+			ttl,
+			size: dataSize
+		});
+
+		console.debug(`[AnalyticsCache] Cached "${key}" (${this.formatBytes(dataSize)})`);
+	}
+
+	/**
+	 * Get data from cache with automatic expiration
+	 */
+	get(key: string): any | null {
+		const item = this.cache.get(key);
+		if (!item) {
+			this.missCount++;
+			return null;
+		}
+
+		// Check if expired
+		if (Date.now() - item.timestamp > item.ttl) {
+			this.cache.delete(key);
+			this.missCount++;
+			console.debug(`[AnalyticsCache] Cache expired for "${key}"`);
+			return null;
+		}
+
+		this.hitCount++;
+		console.debug(`[AnalyticsCache] Cache hit for "${key}"`);
+		return JSON.parse(JSON.stringify(item.data)); // Return deep clone
+	}
+
+	/**
+	 * Check if cache has valid entry for key
+	 */
+	has(key: string): boolean {
+		const item = this.cache.get(key);
+		if (!item) {
+			return false;
+		}
+
+		if (Date.now() - item.timestamp > item.ttl) {
+			this.cache.delete(key);
+			return false;
+		}
+
+		return true;
+	}
+
+	/**
+	 * Clear all cache entries
+	 */
+	clear(): void {
+		console.info(`[AnalyticsCache] Clearing cache (${this.cache.size} items)`);
+		this.cache.clear();
+		this.hitCount = 0;
+		this.missCount = 0;
+	}
+
+	/**
+	 * Invalidate cache entries by pattern
+	 */
+	invalidatePattern(pattern: string): void {
+		const keysToDelete: string[] = [];
+		
+		for (const key of this.cache.keys()) {
+			if (key.includes(pattern)) {
+				keysToDelete.push(key);
+			}
+		}
+
+		keysToDelete.forEach(key => {
+			this.cache.delete(key);
+			console.debug(`[AnalyticsCache] Invalidated "${key}"`);
+		});
+
+		if (keysToDelete.length > 0) {
+			console.info(`[AnalyticsCache] Invalidated ${keysToDelete.length} entries matching "${pattern}"`);
+		}
+	}
+
+	/**
+	 * Get cache statistics
+	 */
+	getStats(): { hitRate: number; totalMemoryMB: number; entryCount: number; hitCount: number; missCount: number } {
+		const totalRequests = this.hitCount + this.missCount;
+		const hitRate = totalRequests > 0 ? (this.hitCount / totalRequests) * 100 : 0;
+		
+		let totalMemory = 0;
+		this.cache.forEach(item => totalMemory += item.size);
+
+		return {
+			hitRate: Math.round(hitRate * 100) / 100,
+			totalMemoryMB: Math.round((totalMemory / (1024 * 1024)) * 100) / 100,
+			entryCount: this.cache.size,
+			hitCount: this.hitCount,
+			missCount: this.missCount
+		};
+	}
+
+	/**
+	 * Calculate approximate size of data in bytes
+	 */
+	private calculateDataSize(data: any): number {
+		try {
+			return new Blob([JSON.stringify(data)]).size;
+		} catch (error) {
+			// Fallback estimation
+			return JSON.stringify(data).length * 2; // Rough estimate (UTF-16)
+		}
+	}
+
+	/**
+	 * Evict cache entries if memory limit exceeded
+	 */
+	private evictIfNecessary(newDataSize: number): void {
+		let totalMemory = newDataSize;
+		this.cache.forEach(item => totalMemory += item.size);
+
+		const maxMemoryBytes = this.MAX_MEMORY_MB * 1024 * 1024;
+
+		// If we exceed memory limit or entry count, evict oldest entries
+		if (totalMemory > maxMemoryBytes || this.cache.size >= this.MAX_CACHE_SIZE) {
+			const entries = Array.from(this.cache.entries())
+				.sort((a, b) => a[1].timestamp - b[1].timestamp); // Sort by timestamp (oldest first)
+
+			let evictedCount = 0;
+			let freedMemory = 0;
+
+			// Evict oldest entries until we're under limits
+			while ((totalMemory > maxMemoryBytes || this.cache.size >= this.MAX_CACHE_SIZE) && entries.length > 0) {
+				const [key, item] = entries.shift()!;
+				this.cache.delete(key);
+				totalMemory -= item.size;
+				freedMemory += item.size;
+				evictedCount++;
+			}
+
+			if (evictedCount > 0) {
+				console.info(`[AnalyticsCache] Evicted ${evictedCount} entries, freed ${this.formatBytes(freedMemory)}`);
+			}
+		}
+	}
+
+	/**
+	 * Format bytes for logging
+	 */
+	private formatBytes(bytes: number): string {
+		if (bytes === 0) return '0 B';
+		const k = 1024;
+		const sizes = ['B', 'KB', 'MB', 'GB'];
+		const i = Math.floor(Math.log(bytes) / Math.log(k));
+		return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+	}
+}
+
 interface NotesAnalyticsSettings {
 	dateFormat: string;
 	enableRealTimeUpdates: boolean;
@@ -626,8 +947,8 @@ class ChartRenderer {
 				new Notice('Chart data URL copied to clipboard!');
 			}
 		} catch (error) {
+			new Notice('Failed to copy chart to clipboard. Please try a different format.');
 			console.error('Failed to copy to clipboard:', error);
-			new Notice('Failed to copy chart to clipboard');
 		}
 	}
 
@@ -649,142 +970,774 @@ class ChartRenderer {
 	}
 }
 
-export default class NotesAnalyticsPlugin extends Plugin {
-	settings: NotesAnalyticsSettings;
-	private updateTimeout: number;
+// Performance monitoring utilities
+class PerformanceMonitor {
+	private metrics: Map<string, { startTime: number; totalTime: number; callCount: number }> = new Map();
+	private memoryBaseline: number = 0;
 
-	async onload() {
-		await this.loadSettings();
+	/**
+	 * Start timing an operation
+	 */
+	startTimer(operation: string): void {
+		if (!this.metrics.has(operation)) {
+			this.metrics.set(operation, { startTime: 0, totalTime: 0, callCount: 0 });
+		}
+		
+		const metric = this.metrics.get(operation)!;
+		metric.startTime = performance.now();
+	}
 
-		// Add ribbon icon for analytics
-		const ribbonIconEl = this.addRibbonIcon('bar-chart', 'Notes Analytics', (evt: MouseEvent) => {
-			new ChartVisualizationsModal(this.app, this).open();
-		});
-		ribbonIconEl.addClass('notes-analytics-ribbon-class');
-
-		// Add ribbon icon for dashboard
-		const dashboardRibbonIconEl = this.addRibbonIcon('layout-dashboard', 'Analytics Dashboard', (evt: MouseEvent) => {
-			new AnalyticsDashboardModal(this.app, this).open();
-		});
-		dashboardRibbonIconEl.addClass('notes-analytics-ribbon-class');
-
-		// Add status bar item
-		const statusBarItemEl = this.addStatusBarItem();
-		this.updateStatusBar(statusBarItemEl);
-
-		// Add command to open analytics modal
-		this.addCommand({
-			id: 'open-notes-analytics',
-			name: 'Open Notes Analytics',
-			callback: () => {
-				new ChartVisualizationsModal(this.app, this).open();
-			}
-		});
-
-		// Add command to show chart visualizations
-		this.addCommand({
-			id: 'show-chart-visualizations',
-			name: 'Show Chart Visualizations',
-			callback: () => {
-				new ChartVisualizationsModal(this.app, this).open();
-			}
-		});
-
-		this.addCommand({
-			id: 'show-analytics-dashboard',
-			name: 'Show Analytics Dashboard',
-			callback: () => {
-				new AnalyticsDashboardModal(this.app, this).open();
-			}
-		});
-
-		// Add settings tab
-		this.addSettingTab(new NotesAnalyticsSettingTab(this.app, this));
-
-		// Register file events for real-time updates
-		if (this.settings.enableRealTimeUpdates) {
-			this.registerEvent(
-				this.app.vault.on('create', (file) => {
-					if (file instanceof TFile && file.extension === 'md') {
-						this.updateStatusBar(statusBarItemEl);
-					}
-				})
-			);
-
-			this.registerEvent(
-				this.app.vault.on('modify', (file) => {
-					if (file instanceof TFile && file.extension === 'md') {
-						// Debounce updates to avoid too frequent updates
-						clearTimeout(this.updateTimeout);
-						this.updateTimeout = window.setTimeout(() => {
-							this.updateStatusBar(statusBarItemEl);
-						}, 2000);
-					}
-				})
-			);
-
-			this.registerEvent(
-				this.app.vault.on('delete', (file) => {
-					if (file instanceof TFile && file.extension === 'md') {
-						this.updateStatusBar(statusBarItemEl);
-					}
-				})
-			);
+	/**
+	 * End timing an operation and record the duration
+	 */
+	endTimer(operation: string): number {
+		const metric = this.metrics.get(operation);
+		if (!metric || metric.startTime === 0) {
+			console.warn(`[PerformanceMonitor] Timer not started for operation: ${operation}`);
+			return 0;
 		}
 
-		// Update status bar periodically
-		if (this.settings.enableRealTimeUpdates) {
-			this.registerInterval(window.setInterval(() => {
-				this.updateStatusBar(statusBarItemEl);
-			}, 30000)); // Update every 30 seconds
-		} else {
-			// Update once on load
-			this.updateStatusBar(statusBarItemEl);
+		const duration = performance.now() - metric.startTime;
+		metric.totalTime += duration;
+		metric.callCount += 1;
+		metric.startTime = 0;
+
+		console.debug(`[PerformanceMonitor] ${operation}: ${duration.toFixed(2)}ms`);
+		return duration;
+	}
+
+	/**
+	 * Time an async operation automatically
+	 */
+	async timeAsync<T>(operation: string, fn: () => Promise<T>): Promise<T> {
+		this.startTimer(operation);
+		try {
+			const result = await fn();
+			this.endTimer(operation);
+			return result;
+		} catch (error) {
+			this.endTimer(operation);
+			throw error;
+		}
+	}
+
+	/**
+	 * Get performance statistics
+	 */
+	getStats(): { operation: string; avgTime: number; totalTime: number; callCount: number }[] {
+		const stats: { operation: string; avgTime: number; totalTime: number; callCount: number }[] = [];
+		
+		this.metrics.forEach((metric, operation) => {
+			if (metric.callCount > 0) {
+				stats.push({
+					operation,
+					avgTime: Math.round((metric.totalTime / metric.callCount) * 100) / 100,
+					totalTime: Math.round(metric.totalTime * 100) / 100,
+					callCount: metric.callCount
+				});
+			}
+		});
+
+		return stats.sort((a, b) => b.totalTime - a.totalTime);
+	}
+
+	/**
+	 * Get current memory usage (approximate)
+	 */
+	getMemoryUsage(): { used: number; total: number } {
+		if ('memory' in performance) {
+			const memory = (performance as any).memory;
+			return {
+				used: Math.round((memory.usedJSHeapSize / 1024 / 1024) * 100) / 100,
+				total: Math.round((memory.totalJSHeapSize / 1024 / 1024) * 100) / 100
+			};
+		}
+		return { used: 0, total: 0 };
+	}
+
+	/**
+	 * Log performance summary
+	 */
+	logSummary(): void {
+		const stats = this.getStats();
+		const memory = this.getMemoryUsage();
+		
+		console.group('[Performance Summary]');
+		console.table(stats);
+		
+		if (memory.used > 0) {
+			console.info(`Memory Usage: ${memory.used}MB / ${memory.total}MB`);
+		}
+		
+		console.groupEnd();
+	}
+
+	/**
+	 * Reset all metrics
+	 */
+	reset(): void {
+		this.metrics.clear();
+		console.info('[PerformanceMonitor] Metrics reset');
+	}
+}
+
+export default class NotesAnalyticsPlugin extends Plugin {
+	settings: NotesAnalyticsSettings;
+	private updateTimeout: number | undefined;
+	private cache: AnalyticsCache;
+	private performanceMonitor: PerformanceMonitor;
+	private lastFileModificationTime: number = 0;
+	private debouncedCacheInvalidation: number | undefined;
+	private statusBarUpdateInProgress: boolean = false;
+
+	/**
+	 * Setup keyboard shortcuts for accessibility
+	 */
+	private setupKeyboardShortcuts(): void {
+		// Add keyboard shortcut for dashboard
+		this.addCommand({
+			id: 'open-analytics-dashboard',
+			name: 'Open Analytics Dashboard',
+			hotkeys: [{ modifiers: ['Ctrl', 'Shift'], key: 'a' }],
+			callback: () => {
+				try {
+					new AnalyticsDashboardModal(this.app, this).open();
+				} catch (error) {
+					console.error('[Notes Analytics] Error opening dashboard:', error);
+					new Notice('Failed to open analytics dashboard. Please try again.');
+				}
+			}
+		});
+
+		// Add keyboard shortcut for charts
+		this.addCommand({
+			id: 'open-chart-visualizations',
+			name: 'Open Chart Visualizations',
+			hotkeys: [{ modifiers: ['Ctrl', 'Shift'], key: 'c' }],
+			callback: () => {
+				try {
+					new ChartVisualizationsModal(this.app, this).open();
+				} catch (error) {
+					console.error('[Notes Analytics] Error opening chart visualizations:', error);
+					new Notice('Failed to open analytics charts. Please try again.');
+				}
+			}
+		});
+
+		// Add keyboard shortcut for full report
+		this.addCommand({
+			id: 'generate-full-report',
+			name: 'Generate Full Analytics Report',
+			hotkeys: [{ modifiers: ['Ctrl', 'Shift'], key: 'r' }],
+			callback: async () => {
+				try {
+					const analytics = await this.getAllAnalytics();
+					new Notice('Analytics report generated in console');
+					console.log('Full Analytics Report:', analytics);
+				} catch (error) {
+					console.error('[Notes Analytics] Error generating report:', error);
+					new Notice('Failed to generate analytics report. Please try again.');
+				}
+			}
+		});
+
+		// Add keyboard shortcut for refresh analytics
+		this.addCommand({
+			id: 'refresh-analytics',
+			name: 'Refresh Analytics Data',
+			hotkeys: [{ modifiers: ['Ctrl', 'Shift'], key: 'f' }],
+			callback: () => {
+				try {
+					this.cache.clear();
+					new Notice('Analytics data refreshed');
+				} catch (error) {
+					console.error('[Notes Analytics] Error refreshing analytics:', error);
+					new Notice('Failed to refresh analytics data. Please try again.');
+				}
+			}
+		});
+	}
+
+	async onload() {
+		try {
+			console.info('[Notes Analytics] Plugin loading...');
+			
+			// Initialize performance monitoring and caching
+			this.performanceMonitor = new PerformanceMonitor();
+			this.cache = new AnalyticsCache();
+			this.lastFileModificationTime = Date.now();
+
+			console.info('[Notes Analytics] Performance monitoring and caching initialized');
+			
+			// Load settings with validation
+			await this.loadSettings();
+
+			let statusBarItemEl: HTMLElement | null = null;
+
+			// Add ribbon icons with error handling
+			try {
+				const ribbonIconEl = this.addRibbonIcon('bar-chart', 'Notes Analytics', (evt: MouseEvent) => {
+					try {
+						new ChartVisualizationsModal(this.app, this).open();
+					} catch (error) {
+						console.error('[Notes Analytics] Error opening chart visualizations:', error);
+						new Notice('Failed to open analytics charts. Please try again.');
+					}
+				});
+				ribbonIconEl.addClass('notes-analytics-ribbon-class');
+
+				const dashboardRibbonIconEl = this.addRibbonIcon('layout-dashboard', 'Analytics Dashboard', (evt: MouseEvent) => {
+					try {
+						new AnalyticsDashboardModal(this.app, this).open();
+					} catch (error) {
+						console.error('[Notes Analytics] Error opening dashboard:', error);
+						new Notice('Failed to open analytics dashboard. Please try again.');
+					}
+				});
+				dashboardRibbonIconEl.addClass('notes-analytics-ribbon-class');
+			} catch (error) {
+				console.error('[Notes Analytics] Error adding ribbon icons:', error);
+				// Continue loading without ribbon icons
+			}
+
+			// Setup keyboard shortcuts and accessibility features
+			try {
+				this.setupKeyboardShortcuts();
+				console.info('[Notes Analytics] Keyboard shortcuts configured');
+			} catch (error) {
+				console.error('[Notes Analytics] Error setting up keyboard shortcuts:', error);
+				// Continue loading without shortcuts
+			}
+
+			// Add status bar with error handling
+			try {
+				statusBarItemEl = this.addStatusBarItem();
+				if (statusBarItemEl) {
+					this.updateStatusBar(statusBarItemEl);
+				}
+			} catch (error) {
+				console.error('[Notes Analytics] Error adding status bar:', error);
+				// Continue loading without status bar
+			}
+
+			// Add commands with error handling
+			try {
+				this.addCommand({
+					id: 'open-notes-analytics',
+					name: 'Open Notes Analytics',
+					callback: () => {
+						try {
+							new ChartVisualizationsModal(this.app, this).open();
+						} catch (error) {
+							console.error('[Notes Analytics] Error in command callback:', error);
+							new Notice('Failed to open analytics. Please try again.');
+						}
+					}
+				});
+
+				this.addCommand({
+					id: 'show-chart-visualizations',
+					name: 'Show Chart Visualizations',
+					callback: () => {
+						try {
+							new ChartVisualizationsModal(this.app, this).open();
+						} catch (error) {
+							console.error('[Notes Analytics] Error in command callback:', error);
+							new Notice('Failed to show chart visualizations. Please try again.');
+						}
+					}
+				});
+
+				this.addCommand({
+					id: 'show-analytics-dashboard',
+					name: 'Show Analytics Dashboard',
+					callback: () => {
+						try {
+							new AnalyticsDashboardModal(this.app, this).open();
+						} catch (error) {
+							console.error('[Notes Analytics] Error in command callback:', error);
+							new Notice('Failed to show analytics dashboard. Please try again.');
+						}
+					}
+				});
+			} catch (error) {
+				console.error('[Notes Analytics] Error adding commands:', error);
+				// Continue loading without commands
+			}
+
+			// Add settings tab with error handling
+			try {
+				this.addSettingTab(new NotesAnalyticsSettingTab(this.app, this));
+			} catch (error) {
+				console.error('[Notes Analytics] Error adding settings tab:', error);
+				// Continue loading without settings tab
+			}
+
+			// Register file events for real-time updates with error handling
+			if (this.settings.enableRealTimeUpdates) {
+				try {
+					this.registerEvent(
+						this.app.vault.on('create', (file) => {
+							try {
+								if (file instanceof TFile && file.extension === 'md') {
+									this.invalidateAnalyticsCache('file-create');
+									if (statusBarItemEl) {
+										this.updateStatusBar(statusBarItemEl);
+									}
+								}
+							} catch (error) {
+								console.warn('[Notes Analytics] Error in create event handler:', error);
+							}
+						})
+					);
+
+					this.registerEvent(
+						this.app.vault.on('modify', (file) => {
+							try {
+								if (file instanceof TFile && file.extension === 'md') {
+									// Debounced cache invalidation to avoid excessive cache clearing
+									this.debouncedInvalidateCache('file-modify');
+									
+									if (statusBarItemEl) {
+										// Debounce updates to avoid too frequent updates
+										clearTimeout(this.updateTimeout);
+										this.updateTimeout = window.setTimeout(() => {
+											try {
+												if (statusBarItemEl) {
+													this.updateStatusBar(statusBarItemEl);
+												}
+											} catch (error) {
+												console.warn('[Notes Analytics] Error in delayed status update:', error);
+											}
+										}, 2000);
+									}
+								}
+							} catch (error) {
+								console.warn('[Notes Analytics] Error in modify event handler:', error);
+							}
+						})
+					);
+
+					this.registerEvent(
+						this.app.vault.on('delete', (file) => {
+							try {
+								if (file instanceof TFile && file.extension === 'md') {
+									this.invalidateAnalyticsCache('file-delete');
+									if (statusBarItemEl) {
+										this.updateStatusBar(statusBarItemEl);
+									}
+								}
+							} catch (error) {
+								console.warn('[Notes Analytics] Error in delete event handler:', error);
+							}
+						})
+					);
+				} catch (error) {
+					console.error('[Notes Analytics] Error registering vault events:', error);
+					// Continue loading without event handlers
+				}
+			}
+
+			// Set up periodic status bar updates with error handling
+			try {
+				if (this.settings.enableRealTimeUpdates && statusBarItemEl) {
+					this.registerInterval(window.setInterval(() => {
+						try {
+							if (statusBarItemEl) {
+								this.updateStatusBar(statusBarItemEl);
+							}
+						} catch (error) {
+							console.warn('[Notes Analytics] Error in periodic status update:', error);
+						}
+					}, 30000)); // Update every 30 seconds
+				} else if (statusBarItemEl) {
+					// Update once on load
+					this.updateStatusBar(statusBarItemEl);
+				}
+			} catch (error) {
+				console.error('[Notes Analytics] Error setting up status bar updates:', error);
+				// Continue without periodic updates
+			}
+
+			console.info('[Notes Analytics] Plugin loaded successfully');
+		} catch (error) {
+			console.error('[Notes Analytics] Critical error during plugin load:', error);
+			new Notice('Notes Analytics plugin failed to load. Please check the console for details.');
+			// Plugin can still be partially functional even if some features fail
 		}
 	}
 
 	onunload() {
-		// Clean up timeout if it exists
-		if (this.updateTimeout) {
-			clearTimeout(this.updateTimeout);
+		try {
+			console.info('[Notes Analytics] Plugin unloading...');
+			
+			// Clean up timeouts
+			if (this.updateTimeout) {
+				clearTimeout(this.updateTimeout);
+				this.updateTimeout = undefined;
+			}
+
+			if (this.debouncedCacheInvalidation) {
+				clearTimeout(this.debouncedCacheInvalidation);
+				this.debouncedCacheInvalidation = undefined;
+			}
+
+			// Log performance summary before cleanup
+			if (this.performanceMonitor) {
+				this.performanceMonitor.logSummary();
+				
+				// Log cache statistics
+				if (this.cache) {
+					const cacheStats = this.cache.getStats();
+					console.info('[Notes Analytics] Cache Statistics:', cacheStats);
+				}
+			}
+
+			// Clear cache and cleanup resources
+			if (this.cache) {
+				this.cache.clear();
+			}
+
+			console.info('[Notes Analytics] Plugin unloaded successfully');
+		} catch (error) {
+			console.error('[Notes Analytics] Error during plugin unload:', error);
 		}
 	}
 
 	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		try {
+			const loadedData = await this.loadData();
+			
+			// Merge with defaults
+			const mergedSettings = Object.assign({}, DEFAULT_SETTINGS, loadedData);
+			
+			// Validate the merged settings
+			if (DataValidator.validateSettings(mergedSettings)) {
+				this.settings = mergedSettings;
+				console.info('[Notes Analytics] Settings loaded and validated successfully');
+			} else {
+				console.warn('[Notes Analytics] Invalid settings detected, using defaults');
+				this.settings = Object.assign({}, DEFAULT_SETTINGS);
+				
+				// Save the corrected settings
+				await this.saveSettings();
+			}
+		} catch (error) {
+			console.error('[Notes Analytics] Error loading settings, using defaults:', error);
+			this.settings = Object.assign({}, DEFAULT_SETTINGS);
+			
+			// Try to save default settings
+			try {
+				await this.saveSettings();
+			} catch (saveError) {
+				console.error('[Notes Analytics] Failed to save default settings:', saveError);
+			}
+		}
 	}
 
 	async saveSettings() {
-		await this.saveData(this.settings);
+		try {
+			// Validate settings before saving
+			if (!DataValidator.validateSettings(this.settings)) {
+				console.warn('[Notes Analytics] Invalid settings detected before save, using defaults');
+				this.settings = Object.assign({}, DEFAULT_SETTINGS);
+			}
+			
+			await this.saveData(this.settings);
+		} catch (error) {
+			console.error('[Notes Analytics] Error saving settings:', error);
+			new Notice('Failed to save analytics settings. Please try again.');
+		}
 	}
 
 	private async updateStatusBar(statusBarItemEl: HTMLElement) {
-		const files = this.app.vault.getMarkdownFiles();
-		const totalFiles = files.length;
-		const totalWords = await this.getTotalWordCount(files);
-		statusBarItemEl.setText(`📊 ${totalFiles} files, ${totalWords} words`);
+		try {
+			// Prevent excessive updates with throttling
+			if (this.statusBarUpdateInProgress) {
+				return;
+			}
+			this.statusBarUpdateInProgress = true;
+
+			if (!statusBarItemEl) {
+				return;
+			}
+
+			// Show loading state
+			statusBarItemEl.setText('📊 Loading...');
+
+			const files = this.app.vault.getMarkdownFiles();
+			const totalFiles = files ? files.length : 0;
+			
+			if (totalFiles === 0) {
+				statusBarItemEl.setText(`📊 No markdown files found`);
+				statusBarItemEl.title = 'No markdown files found in vault';
+				return;
+			}
+
+			const totalWords = await this.getTotalWordCount(files);
+			
+			// Format numbers for better readability
+			const formattedWords = totalWords >= 1000 
+				? `${(totalWords / 1000).toFixed(1)}k` 
+				: totalWords.toString();
+			
+			const formattedFiles = totalFiles >= 1000 
+				? `${(totalFiles / 1000).toFixed(1)}k` 
+				: totalFiles.toString();
+
+			statusBarItemEl.setText(`📊 ${formattedFiles} files • ${formattedWords} words`);
+			
+			// Add detailed tooltip
+			statusBarItemEl.title = `Analytics: ${totalFiles} files, ${totalWords.toLocaleString()} words total. Click to open dashboard.`;
+		} catch (error) {
+			console.warn('[Notes Analytics] Error updating status bar:', error);
+			// Show minimal info if there's an error
+			if (statusBarItemEl) {
+				statusBarItemEl.setText('📊 Analytics unavailable');
+				statusBarItemEl.title = 'Analytics temporarily unavailable. Click to try again.';
+			}
+		} finally {
+			this.statusBarUpdateInProgress = false;
+		}
+	}
+
+	/**
+	 * Invalidate cache entries related to analytics
+	 */
+	private invalidateAnalyticsCache(reason: string): void {
+		if (!this.cache) return;
+
+		try {
+			// Invalidate relevant cache patterns based on the reason
+			switch (reason) {
+				case 'file-create':
+				case 'file-delete':
+					// These operations affect counts and cumulative data
+					this.cache.invalidatePattern('wordcount');
+					this.cache.invalidatePattern('analytics');
+					this.cache.invalidatePattern('summary');
+					this.cache.invalidatePattern('comparison');
+					break;
+				case 'file-modify':
+					// File modifications mainly affect word counts
+					this.cache.invalidatePattern('wordcount');
+					this.cache.invalidatePattern('totalwords');
+					break;
+				case 'settings-change':
+					// Settings changes might affect all analytics
+					this.cache.clear();
+					break;
+				default:
+					// Clear specific pattern or all if unknown reason
+					this.cache.invalidatePattern(reason);
+			}
+
+			this.lastFileModificationTime = Date.now();
+			console.debug(`[Notes Analytics] Cache invalidated (${reason})`);
+		} catch (error) {
+			console.warn('[Notes Analytics] Error invalidating cache:', error);
+		}
+	}
+
+	/**
+	 * Debounced cache invalidation to prevent excessive cache clearing
+	 */
+	private debouncedInvalidateCache(reason: string): void {
+		// Clear existing timeout
+		if (this.debouncedCacheInvalidation) {
+			clearTimeout(this.debouncedCacheInvalidation);
+		}
+
+		// Set new timeout for cache invalidation
+		this.debouncedCacheInvalidation = window.setTimeout(() => {
+			this.invalidateAnalyticsCache(reason);
+			this.debouncedCacheInvalidation = undefined;
+		}, 1000); // 1 second debounce
+	}
+
+	/**
+	 * Get analytics data with caching
+	 */
+	private async getCachedAnalytics<T>(
+		cacheKey: string,
+		dataFetcher: () => Promise<T>,
+		ttl: number = 5 * 60 * 1000 // 5 minutes default
+	): Promise<T> {
+		if (!this.cache) {
+			return await dataFetcher();
+		}
+
+		// Check cache first
+		const cached = this.cache.get(cacheKey);
+		if (cached !== null) {
+			return cached as T;
+		}
+
+		// Fetch fresh data with performance monitoring
+		return await this.performanceMonitor.timeAsync(`fetch-${cacheKey}`, async () => {
+			const data = await dataFetcher();
+			
+			// Cache the result
+			this.cache.set(cacheKey, data, ttl);
+			
+			return data;
+		});
+	}
+
+	/**
+	 * Get performance and cache statistics
+	 */
+	public getPerformanceStats(): {
+		cache: {
+			hitRate: number;
+			entryCount: number;
+			hitCount: number;
+			missCount: number;
+			memoryUsage: string;
+		};
+		performance: {
+			totalOperations: number;
+			averageTime: number;
+			totalTime: number;
+			operations: { operation: string; avgTime: number; totalTime: number; callCount: number }[];
+		};
+	} {
+		const cacheStats = this.cache?.getStats() || {
+			hitCount: 0,
+			missCount: 0,
+			entryCount: 0,
+			totalMemoryMB: 0,
+			hitRate: 0
+		};
+
+		const performanceStatsArray = this.performanceMonitor?.getStats() || [];
+
+		// Calculate aggregate performance stats
+		const totalOperations = performanceStatsArray.reduce((sum, stat) => sum + stat.callCount, 0);
+		const totalTime = performanceStatsArray.reduce((sum, stat) => sum + stat.totalTime, 0);
+		const averageTime = totalOperations > 0 ? totalTime / totalOperations : 0;
+
+		return {
+			cache: {
+				hitRate: Math.round(cacheStats.hitRate),
+				entryCount: cacheStats.entryCount,
+				hitCount: cacheStats.hitCount,
+				missCount: cacheStats.missCount,
+				memoryUsage: `${Math.round(cacheStats.totalMemoryMB * 1024)}KB`
+			},
+			performance: {
+				totalOperations,
+				averageTime: Math.round(averageTime),
+				totalTime: Math.round(totalTime),
+				operations: performanceStatsArray
+			}
+		};
 	}
 
 	async getTotalWordCount(files: TFile[]): Promise<number> {
-		let totalWords = 0;
-		for (const file of files) {
-			totalWords += await this.getWordCount(file);
+		// Enhanced input validation
+		if (!files || !Array.isArray(files) || files.length === 0) {
+			return 0;
 		}
-		return totalWords;
+
+		// Cache key based on files length and modification times
+		const cacheKey = `totalwords-${files.length}-${this.lastFileModificationTime}`;
+		
+		return await this.getCachedAnalytics(cacheKey, async () => {
+			let totalWords = 0;
+			let processedFiles = 0;
+			let errorCount = 0;
+			
+			try {
+				// Batch processing for better performance
+				const BATCH_SIZE = 50; // Process files in batches to prevent UI blocking
+				
+				for (let i = 0; i < files.length; i += BATCH_SIZE) {
+					const batch = files.slice(i, i + BATCH_SIZE);
+					
+					// Process batch in parallel with limited concurrency
+					const batchPromises = batch.map(async (file) => {
+						try {
+							return await this.getWordCount(file);
+						} catch (error) {
+							errorCount++;
+							console.warn(`[Notes Analytics] Error processing file "${file?.path || 'unknown'}":`, error.message);
+							return 0; // Return 0 for failed files
+						}
+					});
+
+					const batchResults = await Promise.all(batchPromises);
+					
+					// Sum up batch results
+					batchResults.forEach(wordCount => {
+						totalWords += wordCount;
+						processedFiles++;
+					});
+
+					// Small delay between batches to prevent UI freezing
+					if (i + BATCH_SIZE < files.length) {
+						await new Promise(resolve => setTimeout(resolve, 1));
+					}
+				}
+
+				if (errorCount > 0) {
+					console.info(`[Notes Analytics] Processed ${processedFiles} files successfully, ${errorCount} files had errors`);
+				}
+
+				return Math.max(0, totalWords); // Ensure non-negative result
+			} catch (error) {
+				console.error('[Notes Analytics] Critical error in getTotalWordCount:', error);
+				return 0;
+			}
+		}, 10 * 60 * 1000); // Cache for 10 minutes - word counts don't change frequently
 	}
 
 	async getWordCount(file: TFile): Promise<number> {
+		// Enhanced input validation
+		if (!file || !file.path || file.extension !== 'md') {
+			return 0;
+		}
+		
 		try {
 			// For more accurate word count, read the file content
 			const content = await this.app.vault.read(file);
-			// Simple word count: split by whitespace and filter empty strings
-			const words = content.trim().split(/\s+/).filter(word => word.length > 0);
-			return words.length;
-		} catch (error) {
-			// Fallback to size-based estimation if reading fails
-			if (file.stat) {
-				return Math.floor(file.stat.size / 5); // Rough estimate: 5 chars per word
+			if (!content || typeof content !== 'string' || content.trim().length === 0) {
+				return 0;
 			}
+
+			// Enhanced markdown content cleaning for better word count accuracy
+			const cleanContent = content
+				.replace(/```[\s\S]*?```/g, '') // Remove code blocks
+				.replace(/`[^`]*`/g, '') // Remove inline code
+				.replace(/!\[[^\]]*\]\([^)]*\)/g, '') // Remove images
+				.replace(/\[[^\]]*\]\([^)]*\)/g, '') // Remove links
+				.replace(/#{1,6}\s+/g, '') // Remove headers
+				.replace(/[*_~]{1,3}/g, '') // Remove emphasis
+				.replace(/^\s*[-*+]\s+/gm, '') // Remove list markers
+				.replace(/^\s*\d+\.\s+/gm, '') // Remove numbered lists
+				.replace(/^\s*>\s+/gm, '') // Remove blockquotes
+				.replace(/\s+/g, ' ') // Normalize whitespace
+				.trim();
+
+			if (!cleanContent) {
+				return 0;
+			}
+
+			// Simple word count: split by whitespace and filter empty strings
+			const words = cleanContent.split(/\s+/).filter(word => word.length > 0);
+			return Math.max(0, words.length); // Ensure non-negative result
+		} catch (error) {
+			console.warn(`[Notes Analytics] Unable to read file "${file.path}" for word count:`, error.message);
+			
+			// Fallback to size-based estimation if reading fails
+			try {
+				if (file.stat && file.stat.size > 0) {
+					return Math.floor(file.stat.size / 5); // Rough estimate: 5 chars per word
+				}
+			} catch (statError) {
+				console.warn(`[Notes Analytics] Unable to get file stats for "${file.path}":`, statError.message);
+			}
+			
 			return 0;
 		}
 	}
@@ -880,61 +1833,150 @@ export default class NotesAnalyticsPlugin extends Plugin {
 	}
 
 	async getTagAnalytics(): Promise<{ label: string; value: number }[]> {
-		const files = this.app.vault.getMarkdownFiles();
-		const tagCounts = new Map<string, number>();
-
-		for (const file of files) {
+		// Create cache key based on file count and last modification time
+		const fileCount = this.app.vault.getMarkdownFiles().length;
+		const cacheKey = `tag-analytics-${fileCount}-${this.lastFileModificationTime}`;
+		
+		return await this.getCachedAnalytics(cacheKey, async () => {
 			try {
-				const content = await this.app.vault.read(file);
-				// Extract tags using regex (both #tag and [[tag]] formats)
-				const tagMatches = content.match(/#[\w\-_]+/g) || [];
-				const wikiTagMatches = content.match(/\[\[([^\]]+)\]\]/g) || [];
-				
-				// Process hashtags
-				tagMatches.forEach(tag => {
-					const cleanTag = tag.substring(1); // Remove #
-					tagCounts.set(cleanTag, (tagCounts.get(cleanTag) || 0) + 1);
-				});
+				const files = this.app.vault.getMarkdownFiles();
+				if (!files || files.length === 0) {
+					return [];
+				}
 
-				// Process wiki-style tags (only if they look like tags)
-				wikiTagMatches.forEach(match => {
-					const tag = match.slice(2, -2); // Remove [[ and ]]
-					if (tag.length < 30 && !tag.includes('/')) { // Basic filter for tag-like content
-						tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
+				const tagCounts = new Map<string, number>();
+				let processedFiles = 0;
+				let errorCount = 0;
+
+				// Process files in batches
+				const BATCH_SIZE = 50;
+				for (let i = 0; i < files.length; i += BATCH_SIZE) {
+					const batch = files.slice(i, i + BATCH_SIZE);
+					
+					const batchPromises = batch.map(async (file) => {
+						try {
+							const content = await this.app.vault.read(file);
+							if (!content || typeof content !== 'string') {
+								return null;
+							}
+
+							// Extract tags using regex (both #tag and [[tag]] formats)
+							const tagMatches = content.match(/#[\w\-_]+/g) || [];
+							const wikiTagMatches = content.match(/\[\[([^\]]+)\]\]/g) || [];
+							
+							const fileTags = new Set<string>();
+
+							// Process hashtags
+							tagMatches.forEach(tag => {
+								if (tag && tag.length > 1) {
+									const cleanTag = tag.substring(1); // Remove #
+									if (cleanTag.length > 0) {
+										fileTags.add(cleanTag);
+									}
+								}
+							});
+
+							// Process wiki-style tags (only if they look like tags)
+							wikiTagMatches.forEach(match => {
+								if (match && match.length > 4) {
+									const tag = match.slice(2, -2); // Remove [[ and ]]
+									if (tag.length > 0 && tag.length < 30 && !tag.includes('/')) { // Basic filter for tag-like content
+										fileTags.add(tag);
+									}
+								}
+							});
+
+							return Array.from(fileTags);
+						} catch (error) {
+							console.warn(`[Notes Analytics] Error processing file "${file?.path || 'unknown'}":`, error.message);
+							return null;
+						}
+					});
+
+					const batchResults = await Promise.all(batchPromises);
+					
+					batchResults.forEach(tags => {
+						if (tags) {
+							tags.forEach(tag => {
+								if (tag && typeof tag === 'string') {
+									tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
+								}
+							});
+							processedFiles++;
+						} else {
+							errorCount++;
+						}
+					});
+
+					// Small delay between batches for UI responsiveness
+					if (i + BATCH_SIZE < files.length) {
+						await new Promise(resolve => setTimeout(resolve, 1));
 					}
-				});
-			} catch (error) {
-				// Skip files that can't be read
-				continue;
-			}
-		}
+				}
 
-		return Array.from(tagCounts.entries())
-			.sort((a, b) => b[1] - a[1])
-			.slice(0, 15) // Top 15 tags
-			.map(([tag, count]) => ({
-				label: tag.length > 20 ? tag.substring(0, 17) + '...' : tag,
-				value: count
-			}));
+				if (errorCount > 0) {
+					console.info(`[Notes Analytics] Tag analytics: ${processedFiles} files processed, ${errorCount} errors`);
+				}
+
+				return Array.from(tagCounts.entries())
+					.sort((a, b) => b[1] - a[1])
+					.slice(0, 15) // Top 15 tags
+					.map(([tag, count]) => ({
+						label: tag.length > 20 ? tag.substring(0, 17) + '...' : tag,
+						value: Math.max(0, count)
+					}));
+			} catch (error) {
+				console.error('[Notes Analytics] Critical error in getTagAnalytics:', error);
+				return [];
+			}
+		}, 10 * 60 * 1000); // Cache for 10 minutes
 	}
 
 	async getFolderAnalytics(): Promise<{ label: string; value: number }[]> {
-		const files = this.app.vault.getMarkdownFiles();
-		const folderCounts = new Map<string, number>();
+		// Create cache key based on file count and last modification time
+		const fileCount = this.app.vault.getMarkdownFiles().length;
+		const cacheKey = `folder-analytics-${fileCount}-${this.lastFileModificationTime}`;
+		
+		return await this.getCachedAnalytics(cacheKey, async () => {
+			try {
+				const files = this.app.vault.getMarkdownFiles();
+				if (!files || files.length === 0) {
+					return [];
+				}
 
-		files.forEach(file => {
-			const folderPath = file.path.substring(0, file.path.lastIndexOf('/'));
-			const folder = folderPath || 'Root';
-			folderCounts.set(folder, (folderCounts.get(folder) || 0) + 1);
-		});
+				const folderCounts = new Map<string, number>();
 
-		return Array.from(folderCounts.entries())
-			.sort((a, b) => b[1] - a[1])
-			.slice(0, 10) // Top 10 folders
-			.map(([folder, count]) => ({
-				label: folder.length > 25 ? '...' + folder.substring(folder.length - 22) : folder,
-				value: count
-			}));
+				files.forEach(file => {
+					try {
+						if (!file || !file.path || typeof file.path !== 'string') {
+							return;
+						}
+
+						const lastSlashIndex = file.path.lastIndexOf('/');
+						const folderPath = lastSlashIndex > -1 ? file.path.substring(0, lastSlashIndex) : '';
+						const folder = folderPath || 'Root';
+						
+						// Sanitize folder name
+						if (folder.length <= 200) { // Reasonable limit for folder names
+							folderCounts.set(folder, (folderCounts.get(folder) || 0) + 1);
+						}
+					} catch (error) {
+						console.warn(`[Notes Analytics] Error processing file path "${file?.path || 'unknown'}":`, error.message);
+					}
+				});
+
+				return Array.from(folderCounts.entries())
+					.sort((a, b) => b[1] - a[1])
+					.slice(0, 10) // Top 10 folders
+					.map(([folder, count]) => ({
+						label: folder.length > 25 ? '...' + folder.substring(folder.length - 22) : folder,
+						value: Math.max(0, count)
+					}));
+			} catch (error) {
+				console.error('[Notes Analytics] Critical error in getFolderAnalytics:', error);
+				return [];
+			}
+		}, 15 * 60 * 1000); // Cache for 15 minutes
 	}
 
 	async getWritingGoalsProgress(): Promise<{ label: string; value: number }[]> {
@@ -972,130 +2014,307 @@ export default class NotesAnalyticsPlugin extends Plugin {
 	}
 
 	async getWordCountAnalyticsForDateRange(startDate: string, endDate: string, groupBy: 'day' | 'week' | 'month' = 'day'): Promise<WordCountData[]> {
-		const files = this.app.vault.getMarkdownFiles();
-		const dataMap = new Map<string, WordCountData>();
+		// Create cache key based on parameters
+		const cacheKey = `daterange-${startDate}-${endDate}-${groupBy}-${this.lastFileModificationTime}`;
 		
-		const start = moment(startDate);
-		const end = moment(endDate);
+		return await this.getCachedAnalytics(cacheKey, async () => {
+			try {
+				// Enhanced input validation
+				if (!startDate || !endDate || typeof startDate !== 'string' || typeof endDate !== 'string') {
+					console.error('[Notes Analytics] Invalid date parameters provided');
+					return [];
+				}
 
-		for (const file of files) {
-			const fileDate = moment(file.stat.ctime);
-			
-			// Skip files outside the date range
-			if (fileDate.isBefore(start) || fileDate.isAfter(end)) {
-				continue;
-			}
+				if (!['day', 'week', 'month'].includes(groupBy)) {
+					console.warn('[Notes Analytics] Invalid groupBy parameter, defaulting to "day"');
+					groupBy = 'day';
+				}
 
-			let dateKey: string;
+				const files = this.app.vault.getMarkdownFiles();
+				if (!files || files.length === 0) {
+					return [];
+				}
 
-			switch (groupBy) {
-				case 'day':
-					dateKey = fileDate.format('YYYY-MM-DD');
-					break;
-				case 'week':
-					const startOfWeek = fileDate.clone().startOf('isoWeek');
-					const endOfWeek = fileDate.clone().endOf('isoWeek');
-					dateKey = `${startOfWeek.format('YYYY-MM-DD')} to ${endOfWeek.format('MM-DD')}`;
-					break;
-				case 'month':
-					dateKey = fileDate.format('YYYY-MM');
-					break;
-				default:
-					dateKey = fileDate.format('YYYY-MM-DD');
-			}
+				const dataMap = new Map<string, WordCountData>();
+				
+				const start = moment(startDate);
+				const end = moment(endDate);
 
-			if (!dataMap.has(dateKey)) {
-				dataMap.set(dateKey, {
-					date: dateKey,
-					totalWords: 0,
-					filesCreated: 0,
-					avgWordsPerFile: 0,
-					cumulativeWords: 0,
-					cumulativeFiles: 0
+				// Validate date range
+				if (!start.isValid() || !end.isValid()) {
+					console.error('[Notes Analytics] Invalid date format provided');
+					return [];
+				}
+
+				if (start.isAfter(end)) {
+					console.warn('[Notes Analytics] Start date is after end date, swapping dates');
+					// Swap the dates by creating new moments
+					const startTemp = end.clone();
+					const endTemp = start.clone();
+					start.year(startTemp.year()).month(startTemp.month()).date(startTemp.date());
+					end.year(endTemp.year()).month(endTemp.month()).date(endTemp.date());
+				}
+
+				let processedFiles = 0;
+				let errorCount = 0;
+
+				// Process files in batches for better performance
+				const BATCH_SIZE = 100;
+				for (let i = 0; i < files.length; i += BATCH_SIZE) {
+					const batch = files.slice(i, i + BATCH_SIZE);
+					
+					// Process batch with limited concurrency
+					const batchPromises = batch.map(async (file) => {
+						try {
+							// Validate file has creation time
+							if (!file.stat || !file.stat.ctime) {
+								return null;
+							}
+
+							const fileDate = moment(file.stat.ctime);
+							if (!fileDate.isValid()) {
+								return null;
+							}
+							
+							// Skip files outside the date range
+							if (fileDate.isBefore(start) || fileDate.isAfter(end)) {
+								return null;
+							}
+
+							let dateKey: string;
+
+							switch (groupBy) {
+								case 'day':
+									dateKey = fileDate.format('YYYY-MM-DD');
+									break;
+								case 'week':
+									const startOfWeek = fileDate.clone().startOf('isoWeek');
+									const endOfWeek = fileDate.clone().endOf('isoWeek');
+									dateKey = `${startOfWeek.format('YYYY-MM-DD')} to ${endOfWeek.format('MM-DD')}`;
+									break;
+								case 'month':
+									dateKey = fileDate.format('YYYY-MM');
+									break;
+								default:
+									dateKey = fileDate.format('YYYY-MM-DD');
+							}
+
+							const wordCount = await this.getWordCount(file);
+							
+							// Validate word count result
+							if (typeof wordCount === 'number' && wordCount >= 0) {
+								return { dateKey, wordCount };
+							}
+							return null;
+						} catch (error) {
+							console.warn(`[Notes Analytics] Error processing file "${file?.path || 'unknown'}":`, error.message);
+							return null;
+						}
+					});
+
+					const batchResults = await Promise.all(batchPromises);
+					
+					// Process batch results
+					batchResults.forEach(result => {
+						if (result) {
+							const { dateKey, wordCount } = result;
+							
+							if (!dataMap.has(dateKey)) {
+								dataMap.set(dateKey, {
+									date: dateKey,
+									totalWords: 0,
+									filesCreated: 0,
+									avgWordsPerFile: 0,
+									cumulativeWords: 0,
+									cumulativeFiles: 0
+								});
+							}
+
+							const data = dataMap.get(dateKey)!;
+							data.totalWords += wordCount;
+							data.filesCreated += 1;
+							processedFiles++;
+						} else {
+							errorCount++;
+						}
+					});
+
+					// Small delay between batches
+					if (i + BATCH_SIZE < files.length) {
+						await new Promise(resolve => setTimeout(resolve, 1));
+					}
+				}
+
+				if (errorCount > 0) {
+					console.info(`[Notes Analytics] Date range analysis: ${processedFiles} files processed, ${errorCount} errors`);
+				}
+
+				// Calculate averages and cumulative data
+				const sortedData = Array.from(dataMap.values()).sort((a, b) => a.date.localeCompare(b.date));
+				let cumulativeWords = 0;
+				let cumulativeFiles = 0;
+				
+				sortedData.forEach(item => {
+					try {
+						item.avgWordsPerFile = item.filesCreated > 0 ? Math.round(item.totalWords / item.filesCreated) : 0;
+						cumulativeWords += Math.max(0, item.totalWords || 0);
+						cumulativeFiles += Math.max(0, item.filesCreated || 0);
+						item.cumulativeWords = cumulativeWords;
+						item.cumulativeFiles = cumulativeFiles;
+					} catch (error) {
+						console.warn('[Notes Analytics] Error calculating cumulative data:', error.message);
+						// Set safe defaults
+						item.avgWordsPerFile = 0;
+						item.cumulativeWords = cumulativeWords;
+						item.cumulativeFiles = cumulativeFiles;
+					}
 				});
+
+				return sortedData; // Return in ascending order (oldest to newest) for proper chart display
+			} catch (error) {
+				console.error('[Notes Analytics] Critical error in getWordCountAnalyticsForDateRange:', error);
+				return [];
 			}
-
-			const data = dataMap.get(dateKey)!;
-			const wordCount = await this.getWordCount(file);
-			data.totalWords += wordCount;
-			data.filesCreated += 1;
-		}
-
-		// Calculate averages and cumulative data
-		const sortedData = Array.from(dataMap.values()).sort((a, b) => a.date.localeCompare(b.date));
-		let cumulativeWords = 0;
-		let cumulativeFiles = 0;
-		
-		sortedData.forEach(item => {
-			item.avgWordsPerFile = item.filesCreated > 0 ? Math.round(item.totalWords / item.filesCreated) : 0;
-			cumulativeWords += item.totalWords;
-			cumulativeFiles += item.filesCreated;
-			item.cumulativeWords = cumulativeWords;
-			item.cumulativeFiles = cumulativeFiles;
-		});
-
-		return sortedData.reverse(); // Return in descending order for recent first
+		}, 15 * 60 * 1000); // Cache for 15 minutes
 	}
 
 	async getWordCountAnalytics(timeFrame: 'day' | 'week' | 'month' | 'year'): Promise<WordCountData[]> {
-		const files = this.app.vault.getMarkdownFiles();
-		const dataMap = new Map<string, WordCountData>();
-
-		for (const file of files) {
-			let dateKey: string;
-			const fileDate = moment(file.stat.ctime);
-
-			switch (timeFrame) {
-				case 'day':
-					dateKey = fileDate.format('YYYY-MM-DD');
-					break;
-				case 'week':
-					// Get start of week (Monday) and format as "YYYY-MM-DD to YYYY-MM-DD"
-					const startOfWeek = fileDate.clone().startOf('isoWeek');
-					const endOfWeek = fileDate.clone().endOf('isoWeek');
-					dateKey = `${startOfWeek.format('YYYY-MM-DD')} to ${endOfWeek.format('MM-DD')}`;
-					break;
-				case 'month':
-					dateKey = fileDate.format('YYYY-MM');
-					break;
-				case 'year':
-					dateKey = fileDate.format('YYYY');
-					break;
-				default:
-					dateKey = fileDate.format('YYYY-MM-DD');
-			}
-
-			if (!dataMap.has(dateKey)) {
-				dataMap.set(dateKey, {
-					date: dateKey,
-					totalWords: 0,
-					filesCreated: 0,
-					avgWordsPerFile: 0,
-					cumulativeWords: 0,
-					cumulativeFiles: 0
-				});
-			}
-
-			const data = dataMap.get(dateKey)!;
-			const wordCount = await this.getWordCount(file);
-			data.totalWords += wordCount;
-			data.filesCreated += 1;
-		}
-
-		// Calculate averages and cumulative data
-		const sortedData = Array.from(dataMap.values()).sort((a, b) => a.date.localeCompare(b.date));
-		let cumulativeWords = 0;
-		let cumulativeFiles = 0;
+		// Create cache key based on timeframe and file modifications
+		const fileCount = this.app.vault.getMarkdownFiles().length;
+		const cacheKey = `wordcount-analytics-${timeFrame}-${fileCount}-${this.lastFileModificationTime}`;
 		
-		sortedData.forEach(item => {
-			item.avgWordsPerFile = item.filesCreated > 0 ? Math.round(item.totalWords / item.filesCreated) : 0;
-			cumulativeWords += item.totalWords;
-			cumulativeFiles += item.filesCreated;
-			item.cumulativeWords = cumulativeWords;
-			item.cumulativeFiles = cumulativeFiles;
-		});
+		return await this.getCachedAnalytics(cacheKey, async () => {
+			try {
+				// Enhanced input validation
+				if (!['day', 'week', 'month', 'year'].includes(timeFrame)) {
+					console.warn('[Notes Analytics] Invalid timeFrame parameter, defaulting to "day"');
+					timeFrame = 'day';
+				}
 
-		return sortedData.reverse(); // Return in descending order for recent first
+				const files = this.app.vault.getMarkdownFiles();
+				if (!files || files.length === 0) {
+					return [];
+				}
+
+				const dataMap = new Map<string, WordCountData>();
+				let processedFiles = 0;
+				let errorCount = 0;
+
+				// Process files in batches
+				const BATCH_SIZE = 50;
+				for (let i = 0; i < files.length; i += BATCH_SIZE) {
+					const batch = files.slice(i, i + BATCH_SIZE);
+					
+					const batchPromises = batch.map(async (file) => {
+						try {
+							if (!file || !file.stat || !file.stat.ctime) {
+								return null;
+							}
+
+							const fileDate = moment(file.stat.ctime);
+							if (!fileDate.isValid()) {
+								return null;
+							}
+
+							let dateKey: string;
+
+							switch (timeFrame) {
+								case 'day':
+									dateKey = fileDate.format('YYYY-MM-DD');
+									break;
+								case 'week':
+									// Get start of week (Monday) and format as "YYYY-MM-DD to YYYY-MM-DD"
+									const startOfWeek = fileDate.clone().startOf('isoWeek');
+									const endOfWeek = fileDate.clone().endOf('isoWeek');
+									dateKey = `${startOfWeek.format('YYYY-MM-DD')} to ${endOfWeek.format('MM-DD')}`;
+									break;
+								case 'month':
+									dateKey = fileDate.format('YYYY-MM');
+									break;
+								case 'year':
+									dateKey = fileDate.format('YYYY');
+									break;
+								default:
+									dateKey = fileDate.format('YYYY-MM-DD');
+							}
+
+							const wordCount = await this.getWordCount(file);
+							
+							// Validate word count result
+							if (typeof wordCount === 'number' && wordCount >= 0) {
+								return { dateKey, wordCount };
+							}
+							return null;
+						} catch (error) {
+							console.warn(`[Notes Analytics] Error processing file "${file?.path || 'unknown'}":`, error.message);
+							return null;
+						}
+					});
+
+					const batchResults = await Promise.all(batchPromises);
+					
+					// Process batch results
+					batchResults.forEach(result => {
+						if (result) {
+							const { dateKey, wordCount } = result;
+							
+							if (!dataMap.has(dateKey)) {
+								dataMap.set(dateKey, {
+									date: dateKey,
+									totalWords: 0,
+									filesCreated: 0,
+									avgWordsPerFile: 0,
+									cumulativeWords: 0,
+									cumulativeFiles: 0
+								});
+							}
+
+							const data = dataMap.get(dateKey)!;
+							data.totalWords += wordCount;
+							data.filesCreated += 1;
+							processedFiles++;
+						} else {
+							errorCount++;
+						}
+					});
+
+					// Small delay between batches
+					if (i + BATCH_SIZE < files.length) {
+						await new Promise(resolve => setTimeout(resolve, 1));
+					}
+				}
+
+				if (errorCount > 0) {
+					console.info(`[Notes Analytics] Word count analytics (${timeFrame}): ${processedFiles} files processed, ${errorCount} errors`);
+				}
+
+				// Calculate averages and cumulative data
+				const sortedData = Array.from(dataMap.values()).sort((a, b) => a.date.localeCompare(b.date));
+				let cumulativeWords = 0;
+				let cumulativeFiles = 0;
+				
+				sortedData.forEach(item => {
+					try {
+						item.avgWordsPerFile = item.filesCreated > 0 ? Math.round(item.totalWords / item.filesCreated) : 0;
+						cumulativeWords += Math.max(0, item.totalWords || 0);
+						cumulativeFiles += Math.max(0, item.filesCreated || 0);
+						item.cumulativeWords = cumulativeWords;
+						item.cumulativeFiles = cumulativeFiles;
+					} catch (error) {
+						console.warn('[Notes Analytics] Error calculating cumulative data:', error.message);
+						// Set safe defaults
+						item.avgWordsPerFile = 0;
+						item.cumulativeWords = cumulativeWords;
+						item.cumulativeFiles = cumulativeFiles;
+					}
+				});
+
+				return sortedData; // Return in ascending order (oldest to newest) for proper chart display
+			} catch (error) {
+				console.error('[Notes Analytics] Critical error in getWordCountAnalytics:', error);
+				return [];
+			}
+		}, 10 * 60 * 1000); // Cache for 10 minutes
 	}
 
 	async getAnalyticsSummary(): Promise<{
@@ -1107,15 +2326,18 @@ export default class NotesAnalyticsPlugin extends Plugin {
 		mostProductiveDay: string;
 		streak: number;
 	}> {
-		const files = this.app.vault.getMarkdownFiles();
-		const totalFiles = files.length;
-		const totalWords = await this.getTotalWordCount(files);
-		const avgWordsPerFile = totalFiles > 0 ? Math.round(totalWords / totalFiles) : 0;
+		const cacheKey = 'analytics-summary';
+		
+		return await this.getCachedAnalytics(cacheKey, async () => {
+			const files = this.app.vault.getMarkdownFiles();
+			const totalFiles = files.length;
+			const totalWords = await this.getTotalWordCount(files);
+			const avgWordsPerFile = totalFiles > 0 ? Math.round(totalWords / totalFiles) : 0;
 
-		// Find oldest and newest files
-		let oldestFile = '';
-		let newestFile = '';
-		let oldestTime = Date.now();
+			// Find oldest and newest files
+			let oldestFile = '';
+			let newestFile = '';
+			let oldestTime = Date.now();
 		let newestTime = 0;
 
 		// Get daily analytics for streak calculation
@@ -1164,6 +2386,7 @@ export default class NotesAnalyticsPlugin extends Plugin {
 			mostProductiveDay,
 			streak
 		};
+		}); // Close getCachedAnalytics call
 	}
 
 	async exportAnalyticsData(timeFrame: 'day' | 'week' | 'month' | 'year', format: 'csv' | 'json' = 'csv') {
@@ -1225,7 +2448,7 @@ export default class NotesAnalyticsPlugin extends Plugin {
 			
 			new Notice(`Analytics data exported as ${filename}`);
 		} catch (error) {
-			new Notice('Error exporting analytics data');
+			new Notice('Failed to export analytics data. Please check your file permissions.');
 			console.error('Export error:', error);
 		}
 	}
@@ -1470,6 +2693,8 @@ class AnalyticsDashboardModal extends Modal {
 	private metricsGrid: HTMLElement;
 	private zoomedChart: HTMLElement | null = null;
 	private chartRenderers: Map<string, ChartRenderer> = new Map();
+	private isLoading: boolean = false;
+	private loadingOverlay: HTMLElement | null = null;
 
 	constructor(app: App, plugin: NotesAnalyticsPlugin) {
 		super(app);
@@ -1483,6 +2708,12 @@ class AnalyticsDashboardModal extends Modal {
 		// Apply the dashboard modal class to the modal container itself
 		this.modalEl.addClass('analytics-dashboard-modal');
 		
+		// Set accessibility attributes
+		this.modalEl.setAttribute('role', 'dialog');
+		this.modalEl.setAttribute('aria-label', 'Analytics Dashboard');
+		this.modalEl.setAttribute('aria-modal', 'true');
+		contentEl.setAttribute('tabindex', '0');
+		
 		// Set the modal to full width and height
 		this.modalEl.style.width = '100vw';
 		this.modalEl.style.height = '100vh';
@@ -1492,6 +2723,9 @@ class AnalyticsDashboardModal extends Modal {
 		this.modalEl.style.top = '0';
 		this.modalEl.style.transform = 'none';
 		this.modalEl.style.margin = '0';
+
+		// Setup keyboard navigation
+		this.setupKeyboardNavigation(contentEl);
 		
 		// Dashboard header
 		const headerDiv = contentEl.createDiv('dashboard-header');
@@ -1511,13 +2745,21 @@ class AnalyticsDashboardModal extends Modal {
 
 	private createFiltersSection(container: HTMLElement) {
 		this.filtersContainer = container.createDiv('filters-section');
+		this.filtersContainer.setAttribute('role', 'group');
+		this.filtersContainer.setAttribute('aria-label', 'Analytics filters');
 		
 		const filtersRow = this.filtersContainer.createDiv('filters-row');
 
 		// Time frame filter
 		const timeFrameDiv = filtersRow.createDiv('filter-group');
-		timeFrameDiv.createEl('label', { text: 'Time Frame:' });
+		const timeFrameLabel = timeFrameDiv.createEl('label', { text: 'Time Frame:' });
 		const timeFrameSelect = timeFrameDiv.createEl('select', { cls: 'filter-select' });
+		
+		// Connect label to select
+		const timeFrameId = 'timeframe-select';
+		timeFrameSelect.setAttribute('id', timeFrameId);
+		timeFrameLabel.setAttribute('for', timeFrameId);
+		timeFrameSelect.setAttribute('aria-label', 'Select time frame for analytics');
 		
 		const timeFrames = [
 			{ value: 'day', text: 'Today' },
@@ -1547,14 +2789,25 @@ class AnalyticsDashboardModal extends Modal {
 		// Custom date range inputs (initially hidden)
 		const customDateDiv = filtersRow.createDiv('filter-group custom-date-range');
 		customDateDiv.style.display = 'none';
+		customDateDiv.setAttribute('role', 'group');
+		customDateDiv.setAttribute('aria-label', 'Custom date range selection');
 		
-		customDateDiv.createEl('label', { text: 'From:' });
+		const startLabel = customDateDiv.createEl('label', { text: 'From:' });
 		const startDateInput = customDateDiv.createEl('input', { type: 'date', cls: 'date-input' });
+		const startDateId = 'start-date-input';
+		startDateInput.setAttribute('id', startDateId);
+		startLabel.setAttribute('for', startDateId);
+		startDateInput.setAttribute('aria-label', 'Start date for custom range');
 		
-		customDateDiv.createEl('label', { text: 'To:' });
+		const endLabel = customDateDiv.createEl('label', { text: 'To:' });
 		const endDateInput = customDateDiv.createEl('input', { type: 'date', cls: 'date-input' });
+		const endDateId = 'end-date-input';
+		endDateInput.setAttribute('id', endDateId);
+		endLabel.setAttribute('for', endDateId);
+		endDateInput.setAttribute('aria-label', 'End date for custom range');
 
 		const applyDateBtn = customDateDiv.createEl('button', { text: 'Apply', cls: 'mod-cta' });
+		applyDateBtn.setAttribute('aria-label', 'Apply custom date range filter');
 		applyDateBtn.onclick = () => {
 			if (startDateInput.value && endDateInput.value) {
 				this.currentDateRange = {
@@ -1650,36 +2903,61 @@ class AnalyticsDashboardModal extends Modal {
 	private createMetricCard(metric: any): HTMLElement {
 		const card = createDiv('metric-card');
 		card.setAttribute('data-metric', metric.id);
+		card.setAttribute('role', 'region');
+		card.setAttribute('aria-label', `${metric.title} analytics card`);
+		card.setAttribute('tabindex', '0');
 
 		// Card header
 		const header = card.createDiv('metric-header');
 		const titleDiv = header.createDiv('metric-title-area');
-		titleDiv.createEl('h3', { text: metric.title, cls: 'metric-title' });
-		titleDiv.createEl('p', { text: metric.description, cls: 'metric-description' });
+		const titleEl = titleDiv.createEl('h3', { text: metric.title, cls: 'metric-title' });
+		titleEl.setAttribute('id', `title-${metric.id}`);
+		const descEl = titleDiv.createEl('p', { text: metric.description, cls: 'metric-description' });
+		descEl.setAttribute('id', `desc-${metric.id}`);
+
+		// Set aria-describedby for the card
+		card.setAttribute('aria-describedby', `desc-${metric.id}`);
 
 		// Chart type selector
 		const chartTypeDiv = header.createDiv('chart-type-selector');
+		chartTypeDiv.setAttribute('role', 'group');
+		chartTypeDiv.setAttribute('aria-label', 'Chart type selection');
+		
 		metric.chartTypes.forEach((type: string, index: number) => {
 			const btn = chartTypeDiv.createEl('button', { 
 				text: type.charAt(0).toUpperCase() + type.slice(1),
 				cls: index === 0 ? 'chart-type-btn active' : 'chart-type-btn'
 			});
+			btn.setAttribute('aria-pressed', index === 0 ? 'true' : 'false');
+			btn.setAttribute('aria-label', `Show ${type} chart for ${metric.title}`);
+			
 			btn.onclick = () => {
-				chartTypeDiv.querySelectorAll('.chart-type-btn').forEach(b => b.removeClass('active'));
+				// Update ARIA states
+				chartTypeDiv.querySelectorAll('.chart-type-btn').forEach(b => {
+					b.removeClass('active');
+					b.setAttribute('aria-pressed', 'false');
+				});
 				btn.addClass('active');
+				btn.setAttribute('aria-pressed', 'true');
+				
 				this.renderMetricChart(metric.id, type);
 			};
 		});
 
 		// Zoom button
 		const zoomBtn = header.createEl('button', { text: '⛶', cls: 'zoom-btn', title: 'Zoom to full view' });
+		zoomBtn.setAttribute('aria-label', `Zoom ${metric.title} chart to full view`);
 		zoomBtn.onclick = () => this.zoomToChart(metric.id);
 
 		// Chart container
 		const chartContainer = card.createDiv('metric-chart-container');
+		chartContainer.setAttribute('role', 'img');
+		chartContainer.setAttribute('aria-label', `${metric.title} chart visualization`);
+		
 		const canvas = chartContainer.createEl('canvas', { cls: 'metric-chart' });
 		canvas.width = 350;
 		canvas.height = 200;
+		canvas.setAttribute('aria-hidden', 'true'); // Canvas is decorative, container provides label
 
 		// Create renderer
 		const renderer = new ChartRenderer(canvas, 350, 200);
@@ -1692,13 +2970,18 @@ class AnalyticsDashboardModal extends Modal {
 		const renderer = this.chartRenderers.get(metricId);
 		if (!renderer) return;
 
+		// Add loading state to specific metric card
+		const metricCard = this.metricsGrid.querySelector(`[data-metric="${metricId}"]`) as HTMLElement;
+		if (metricCard) {
+			this.setCardLoadingState(metricCard, true);
+		}
+
 		try {
 			let data: any[] = [];
 			let title = '';
 			let color = '#007acc';
 
 			// Get the metric configuration
-			const metricCard = this.metricsGrid.querySelector(`[data-metric="${metricId}"]`) as HTMLElement;
 			const metricConfig = this.getMetricConfig(metricId);
 			color = metricConfig.color;
 
@@ -1774,7 +3057,18 @@ class AnalyticsDashboardModal extends Modal {
 					break;
 			}
 		} catch (error) {
+			new Notice(`Failed to render ${metricId} chart. Please try refreshing the dashboard.`);
 			console.error(`Error rendering ${metricId} chart:`, error);
+			
+			// Show error state in card
+			if (metricCard) {
+				this.setCardErrorState(metricCard, `Failed to load ${metricId} data`);
+			}
+		} finally {
+			// Remove loading state
+			if (metricCard) {
+				this.setCardLoadingState(metricCard, false);
+			}
 		}
 	}
 
@@ -1816,28 +3110,135 @@ class AnalyticsDashboardModal extends Modal {
 	}
 
 	private async refreshDashboard() {
-		// Show loading state
-		this.metricsGrid.addClass('loading');
+		if (this.isLoading) return;
+		
+		this.setLoadingState(true);
 
 		try {
-			// Refresh all metric charts
+			// Refresh all metric charts with individual loading states
 			const metricCards = this.metricsGrid.querySelectorAll('.metric-card');
 			
+			// Create promises for parallel loading with staggered start
+			const refreshPromises: Promise<void>[] = [];
+			
 			// Convert NodeList to Array for iteration
-			Array.from(metricCards).forEach(async (card) => {
+			Array.from(metricCards).forEach((card, index) => {
 				const metricId = card.getAttribute('data-metric');
 				const activeChartType = card.querySelector('.chart-type-btn.active')?.textContent?.toLowerCase() || 'line';
 				
 				if (metricId) {
-					await this.renderMetricChart(metricId, activeChartType);
+					// Stagger the start of each chart refresh by 100ms for better UX
+					const refreshPromise = new Promise<void>((resolve) => {
+						setTimeout(async () => {
+							try {
+								await this.renderMetricChart(metricId, activeChartType);
+							} catch (error) {
+								console.error(`Error refreshing ${metricId}:`, error);
+							} finally {
+								resolve();
+							}
+						}, index * 100);
+					});
+					refreshPromises.push(refreshPromise);
 				}
 			});
+
+			// Wait for all charts to complete
+			await Promise.all(refreshPromises);
+
+			// Show success message
+			new Notice('Dashboard refreshed successfully!');
 		} catch (error) {
 			console.error('Error refreshing dashboard:', error);
-			new Notice('Error refreshing dashboard data');
+			new Notice('Error refreshing dashboard data. Please try again.');
 		} finally {
-			this.metricsGrid.removeClass('loading');
+			this.setLoadingState(false);
 		}
+	}
+
+	private setLoadingState(loading: boolean) {
+		this.isLoading = loading;
+		
+		if (loading) {
+			if (!this.loadingOverlay) {
+				this.loadingOverlay = this.contentEl.createDiv('loading-overlay');
+				this.loadingOverlay.innerHTML = `
+					<div class="loading-spinner">
+						<div class="spinner"></div>
+						<p>Loading analytics data...</p>
+					</div>
+				`;
+			}
+			this.loadingOverlay.style.display = 'flex';
+			this.metricsGrid.addClass('loading-blur');
+		} else {
+			if (this.loadingOverlay) {
+				this.loadingOverlay.style.display = 'none';
+			}
+			this.metricsGrid.removeClass('loading-blur');
+		}
+	}
+
+	/**
+	 * Set loading state for individual metric cards
+	 */
+	private setCardLoadingState(card: HTMLElement, loading: boolean) {
+		const chartContainer = card.querySelector('.metric-chart-container') as HTMLElement;
+		if (!chartContainer) return;
+
+		if (loading) {
+			// Add loading spinner to the specific card
+			let loadingSpinner = card.querySelector('.card-loading-spinner') as HTMLElement;
+			if (!loadingSpinner) {
+				loadingSpinner = chartContainer.createDiv('card-loading-spinner');
+				loadingSpinner.innerHTML = `
+					<div class="small-spinner"></div>
+					<span>Loading...</span>
+				`;
+			}
+			loadingSpinner.style.display = 'flex';
+			chartContainer.addClass('loading-blur');
+		} else {
+			const loadingSpinner = card.querySelector('.card-loading-spinner') as HTMLElement;
+			if (loadingSpinner) {
+				loadingSpinner.style.display = 'none';
+			}
+			chartContainer.removeClass('loading-blur');
+		}
+	}
+
+	/**
+	 * Set error state for individual metric cards
+	 */
+	private setCardErrorState(card: HTMLElement, errorMessage: string) {
+		const chartContainer = card.querySelector('.metric-chart-container') as HTMLElement;
+		if (!chartContainer) return;
+
+		// Remove any existing error message
+		const existingError = card.querySelector('.card-error-message');
+		if (existingError) {
+			existingError.remove();
+		}
+
+		// Add error message
+		const errorDiv = chartContainer.createDiv('card-error-message');
+		errorDiv.innerHTML = `
+			<div class="error-icon">⚠️</div>
+			<div class="error-text">${errorMessage}</div>
+			<button class="retry-btn" onclick="this.closest('.metric-card').dispatchEvent(new CustomEvent('retry'))">
+				Retry
+			</button>
+		`;
+
+		// Add retry functionality
+		card.addEventListener('retry', () => {
+			errorDiv.remove();
+			const metricId = card.getAttribute('data-metric');
+			const activeType = card.querySelector('.chart-type-btn.active')?.textContent?.toLowerCase() || 'line';
+			if (metricId) {
+				this.renderMetricChart(metricId, activeType);
+			}
+		});
 	}
 
 	private zoomToChart(metricId: string) {
@@ -1970,6 +3371,108 @@ class AnalyticsDashboardModal extends Modal {
 		}
 	}
 
+	/**
+	 * Setup keyboard navigation for accessibility
+	 */
+	private setupKeyboardNavigation(contentEl: HTMLElement): void {
+		contentEl.addEventListener('keydown', (event: KeyboardEvent) => {
+			switch (event.key) {
+				case 'Escape':
+					this.close();
+					event.preventDefault();
+					break;
+				case 'Tab':
+					this.handleTabNavigation(event);
+					break;
+				case 'Enter':
+				case ' ':
+					if (event.target instanceof HTMLElement) {
+						const button = event.target.closest('button, .clickable');
+						if (button instanceof HTMLElement) {
+							button.click();
+							event.preventDefault();
+						}
+					}
+					break;
+				case 'ArrowLeft':
+				case 'ArrowRight':
+					this.handleArrowNavigation(event);
+					break;
+				case 'r':
+					if (event.ctrlKey) {
+						this.refreshDashboard();
+						event.preventDefault();
+					}
+					break;
+			}
+		});
+
+		// Focus management
+		contentEl.focus();
+	}
+
+	/**
+	 * Handle tab navigation for focusable elements
+	 */
+	private handleTabNavigation(event: KeyboardEvent): void {
+		const focusableElements = this.getFocusableElements();
+		const currentIndex = focusableElements.indexOf(event.target as HTMLElement);
+		
+		if (currentIndex === -1) return;
+
+		event.preventDefault();
+		
+		let nextIndex: number;
+		if (event.shiftKey) {
+			// Shift+Tab: go to previous element
+			nextIndex = currentIndex > 0 ? currentIndex - 1 : focusableElements.length - 1;
+		} else {
+			// Tab: go to next element
+			nextIndex = currentIndex < focusableElements.length - 1 ? currentIndex + 1 : 0;
+		}
+
+		focusableElements[nextIndex]?.focus();
+	}
+
+	/**
+	 * Handle arrow key navigation for grid layouts
+	 */
+	private handleArrowNavigation(event: KeyboardEvent): void {
+		const cards = Array.from(this.metricsGrid.querySelectorAll('.metric-card')) as HTMLElement[];
+		const currentCard = event.target as HTMLElement;
+		const currentIndex = cards.findIndex(card => card.contains(currentCard));
+		
+		if (currentIndex === -1) return;
+
+		event.preventDefault();
+		
+		let nextIndex: number;
+		if (event.key === 'ArrowLeft') {
+			nextIndex = currentIndex > 0 ? currentIndex - 1 : cards.length - 1;
+		} else {
+			nextIndex = currentIndex < cards.length - 1 ? currentIndex + 1 : 0;
+		}
+
+		cards[nextIndex]?.focus();
+	}
+
+	/**
+	 * Get all focusable elements in the modal
+	 */
+	private getFocusableElements(): HTMLElement[] {
+		const selectors = [
+			'button',
+			'[href]',
+			'input',
+			'select',
+			'textarea',
+			'[tabindex]:not([tabindex="-1"])',
+			'.metric-card'
+		];
+		
+		return Array.from(this.contentEl.querySelectorAll(selectors.join(', '))) as HTMLElement[];
+	}
+
 	onClose() {
 		// Remove the CSS class from modal
 		this.modalEl.removeClass('analytics-dashboard-modal');
@@ -1995,23 +3498,38 @@ class ChartVisualizationsModal extends Modal {
 		const { contentEl } = this;
 		contentEl.empty();
 		
+		// Set accessibility attributes
+		this.modalEl.setAttribute('role', 'dialog');
+		this.modalEl.setAttribute('aria-label', 'Chart Visualizations');
+		this.modalEl.setAttribute('aria-modal', 'true');
+		contentEl.setAttribute('tabindex', '0');
+		
 		// Set larger modal size
 		this.modalEl.style.width = '98vw';
 		this.modalEl.style.maxWidth = '1400px';
 		this.modalEl.style.height = '95vh';
 		this.modalEl.style.maxHeight = '900px';
 		
-		contentEl.createEl('h2', { text: 'Chart Visualizations' });
+		const titleEl = contentEl.createEl('h2', { text: 'Chart Visualizations' });
+		titleEl.setAttribute('id', 'chart-modal-title');
+		this.modalEl.setAttribute('aria-labelledby', 'chart-modal-title');
 
 		// Create header with controls and export buttons
 		const headerDiv = contentEl.createDiv('chart-header');
 		
 		// Chart controls on the left
 		const selectorDiv = headerDiv.createDiv('chart-controls');
+		selectorDiv.setAttribute('role', 'group');
+		selectorDiv.setAttribute('aria-label', 'Chart configuration controls');
 		
 		const typeDiv = selectorDiv.createDiv('control-group');
-		typeDiv.createEl('label', { text: 'Chart Type: ' });
+		const typeLabel = typeDiv.createEl('label', { text: 'Chart Type: ' });
 		const typeSelect = typeDiv.createEl('select');
+		const typeSelectId = 'chart-type-select';
+		typeSelect.setAttribute('id', typeSelectId);
+		typeLabel.setAttribute('for', typeSelectId);
+		typeSelect.setAttribute('aria-label', 'Select chart type');
+		
 		typeSelect.createEl('option', { value: 'line', text: 'Line Chart' });
 		typeSelect.createEl('option', { value: 'bar', text: 'Bar Chart' });
 		typeSelect.createEl('option', { value: 'area', text: 'Area Chart' });
@@ -2093,65 +3611,106 @@ class ChartVisualizationsModal extends Modal {
 			const chartType = typeSelect.value as 'line' | 'bar' | 'area' | 'pie';
 			const metric = metricSelect.value as keyof WordCountData | 'fileSizeDistribution' | 'largestFiles' | 'fileSizeGrowth' | 'tagAnalytics' | 'folderAnalytics' | 'writingGoals' | 'comparisonMonth' | 'comparisonWeek' | 'comparisonYear' | 'heatmapCalendar';
 
-			// Show loading message
+			// Show loading message with progress indicator
 			chartContainer.empty();
-			const loadingMsg = chartContainer.createEl('p', { text: 'Loading chart...' });
+			const loadingContainer = chartContainer.createDiv('chart-loading-container');
+			const loadingSpinner = loadingContainer.createDiv('chart-loading-spinner');
+			loadingSpinner.innerHTML = `
+				<div class="spinner-large"></div>
+				<div class="loading-text">
+					<h3>Generating Chart</h3>
+					<p>Processing ${metric} data...</p>
+					<div class="progress-bar">
+						<div class="progress-fill" style="width: 0%"></div>
+					</div>
+				</div>
+			`;
+
+			// Simulate progress for user feedback
+			const progressFill = loadingSpinner.querySelector('.progress-fill') as HTMLElement;
+			const loadingText = loadingSpinner.querySelector('.loading-text p') as HTMLElement;
+			
+			const updateProgress = (percentage: number, message: string) => {
+				if (progressFill) progressFill.style.width = `${percentage}%`;
+				if (loadingText) loadingText.textContent = message;
+			};
 
 			try {
+				updateProgress(10, 'Fetching data...');
 				let chartData: { label: string; value: number }[] = [];
 
 				// Handle different metric types
 				if (metric === 'fileSizeDistribution') {
+					updateProgress(30, 'Analyzing file sizes...');
 					const fileSizeData = await this.plugin.getFileSizeDistribution();
 					chartData = fileSizeData;
 				} else if (metric === 'largestFiles') {
+					updateProgress(30, 'Finding largest files...');
 					const largestFilesData = await this.plugin.getLargestFiles(10);
 					chartData = largestFilesData;
 				} else if (metric === 'fileSizeGrowth') {
+					updateProgress(30, 'Calculating growth trends...');
 					const fileSizeGrowthData = await this.plugin.getFileSizeGrowthTrends();
 					chartData = fileSizeGrowthData;
 				} else if (metric === 'tagAnalytics') {
+					updateProgress(30, 'Analyzing tags...');
 					const tagData = await this.plugin.getTagAnalytics();
 					chartData = tagData;
 				} else if (metric === 'folderAnalytics') {
+					updateProgress(30, 'Analyzing folders...');
 					const folderData = await this.plugin.getFolderAnalytics();
 					chartData = folderData;
 				} else if (metric === 'writingGoals') {
+					updateProgress(30, 'Calculating goal progress...');
 					const goalsData = await this.plugin.getWritingGoalsProgress();
 					chartData = goalsData;
 				} else if (metric === 'comparisonMonth') {
+					updateProgress(30, 'Comparing monthly data...');
 					const comparisonData = await this.plugin.getComparisonData('month');
 					chartData = this.formatComparisonData(comparisonData, 'Month');
 				} else if (metric === 'comparisonWeek') {
+					updateProgress(30, 'Comparing weekly data...');
 					const comparisonData = await this.plugin.getComparisonData('week');
 					chartData = this.formatComparisonData(comparisonData, 'Week');
 				} else if (metric === 'comparisonYear') {
+					updateProgress(30, 'Comparing yearly data...');
 					const comparisonData = await this.plugin.getComparisonData('year');
 					chartData = this.formatComparisonData(comparisonData, 'Year');
 				} else if (metric === 'heatmapCalendar') {
+					updateProgress(30, 'Building heatmap calendar...');
 					const heatmapData = await this.plugin.getHeatmapCalendarData();
 					chartData = heatmapData;
 				} else {
+					updateProgress(30, 'Processing analytics data...');
 					// Standard word count analytics
 					const data = await this.plugin.getWordCountAnalytics(timeFrame);
 					if (data.length === 0) {
-						chartContainer.removeChild(loadingMsg);
+						chartContainer.removeChild(loadingContainer);
 						chartContainer.createEl('p', { text: 'No data available for chart' });
 						return;
 					}
 					chartData = data.filter(item => item.date && item.date !== 'undefined')
-						.reverse().map(item => ({
+						.map(item => ({
 							label: item.date,
 							value: (item[metric as keyof WordCountData] as number) || 0
 						}));
 				}
 
-				chartContainer.removeChild(loadingMsg);
+				updateProgress(60, 'Preparing chart data...');
 				
 				if (chartData.length === 0) {
-					chartContainer.createEl('p', { text: 'No data available for chart' });
+					chartContainer.removeChild(loadingContainer);
+					const emptyState = chartContainer.createDiv('empty-state');
+					emptyState.innerHTML = `
+						<div class="empty-icon">📊</div>
+						<h3>No Data Available</h3>
+						<p>There's no data to display for the selected metric and time frame.</p>
+						<button class="mod-cta" onclick="location.reload()">Refresh Data</button>
+					`;
 					return;
 				}
+
+				updateProgress(80, 'Rendering chart...');
 
 				// Create canvas for chart with larger size
 				const newCanvas = chartContainer.createEl('canvas', { 
@@ -2161,6 +3720,8 @@ class ChartVisualizationsModal extends Modal {
 						height: '500'
 					} 
 				});
+
+				updateProgress(90, 'Finalizing visualization...');
 
 				// Create chart renderer with larger size
 				const renderer = new ChartRenderer(newCanvas, 1000, 500);
@@ -2232,6 +3793,8 @@ class ChartVisualizationsModal extends Modal {
 						break;
 				}
 
+				updateProgress(95, 'Applying final touches...');
+
 				// Render chart based on type
 				switch (chartType) {
 					case 'line':
@@ -2264,24 +3827,71 @@ class ChartVisualizationsModal extends Modal {
 						break;
 				}
 
+				updateProgress(100, 'Complete!');
+
+				// Remove loading container after a brief delay
+				setTimeout(() => {
+					if (chartContainer.contains(loadingContainer)) {
+						chartContainer.removeChild(loadingContainer);
+					}
+				}, 500);
+
 				// Configure export buttons in header
 				if (this.plugin.settings.enableChartExport && exportPngBtn) {
 					exportDiv.style.display = 'flex';
 					
-					exportPngBtn.onclick = () => renderer.exportToPNG(`${metric}-${timeFrame}-chart.png`);
-					exportSvgBtn.onclick = () => renderer.exportToSVG(`${metric}-${timeFrame}-chart.svg`);
-					copyBtn.onclick = () => renderer.copyToClipboard();
+					exportPngBtn.onclick = () => {
+						new Notice('Exporting chart as PNG...');
+						renderer.exportToPNG(`${metric}-${timeFrame}-chart.png`);
+					};
+					exportSvgBtn.onclick = () => {
+						new Notice('Exporting chart as SVG...');
+						renderer.exportToSVG(`${metric}-${timeFrame}-chart.svg`);
+					};
+					copyBtn.onclick = () => {
+						new Notice('Copying chart to clipboard...');
+						renderer.copyToClipboard();
+					};
 					exportCsvBtn.onclick = () => {
+						new Notice('Exporting data as CSV...');
 						this.plugin.exportAnalyticsData(timeFrame, 'csv');
 					};
 					exportJsonBtn.onclick = () => {
+						new Notice('Exporting data as JSON...');
 						this.plugin.exportAnalyticsData(timeFrame, 'json');
 					};
 				}
 
 			} catch (error) {
-				chartContainer.removeChild(loadingMsg);
-				chartContainer.createEl('p', { text: 'Error loading chart data' });
+				if (chartContainer.contains(loadingContainer)) {
+					chartContainer.removeChild(loadingContainer);
+				}
+				
+				// Show error state
+				const errorState = chartContainer.createDiv('error-state');
+				errorState.innerHTML = `
+					<div class="error-icon">⚠️</div>
+					<h3>Error Loading Chart</h3>
+					<p>Failed to load chart data: ${error.message}</p>
+					<div class="error-actions">
+						<button class="mod-cta retry-chart-btn">Retry</button>
+						<button class="mod-muted report-error-btn">Report Issue</button>
+					</div>
+				`;
+
+				const retryBtn = errorState.querySelector('.retry-chart-btn') as HTMLButtonElement;
+				const reportBtn = errorState.querySelector('.report-error-btn') as HTMLButtonElement;
+				
+				retryBtn.onclick = () => {
+					chartContainer.removeChild(errorState);
+					updateChart();
+				};
+				
+				reportBtn.onclick = () => {
+					new Notice('Error details copied to clipboard');
+					navigator.clipboard.writeText(`Chart Error: ${error.message}\nMetric: ${metric}\nTimeFrame: ${timeFrame}\nChartType: ${chartType}`);
+				};
+
 				console.error('Chart loading error:', error);
 			}
 		};
