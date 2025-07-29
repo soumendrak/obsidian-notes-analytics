@@ -1,61 +1,47 @@
 # Notes Analytics Plugin for Obsidian
 
-A comprehensive analytics plugin for Obsidian that provides insights into your note-taking patterns and writing productivity.
+A specialized analytics plugin for Obsidian that provides interactive chart visualizations for your note-taking patterns and writing productivity.
 
 ## Features
 
-### 📈 File Creation History
-- Track when files were created over days, months, and years
-- View detailed timeline of your note creation patterns
-- See file creation trends and productivity insights
-- Individual file word counts for each creation date
-
-### 📊 Advanced Word Count Analytics
-- Monitor word count growth over time with enhanced statistics
-- Filter analytics by day, month, or year
-- Track total words written and average words per file
-- View cumulative word count progression
-- Analyze productivity statistics and writing trends
-
-### 🎯 Enhanced Dashboard Overview
-- Comprehensive summary with key statistics
-- Writing streak tracking - see how many consecutive days you've written
-- Most productive day identification
-- Oldest and newest file tracking
-- Real-time status bar updates
-- Easy access to different analytics views
+### 📊 Interactive Chart Visualizations
+- **Line Charts**: Visualize trends over time with smooth line graphs
+- **Bar Charts**: Compare data across periods with clear bar visualizations
+- **Area Charts**: Filled area charts showing data trends with gradient fills
+- **Pie Charts**: Circular charts perfect for showing proportional data
+- **Multiple Metrics**: Chart total words, files created, average words per file, and cumulative data
+- **Flexible Time Frames**: View daily, weekly, monthly, or yearly data
+- **Custom Date Ranges**: Select specific date ranges for targeted analysis
+- **Large Display**: Enhanced modal window with 1000x500px charts for better visibility
+- **Dynamic Updates**: Charts update in real-time based on your selections
+- **Color-coded Metrics**: Each metric type has its own distinctive color scheme
+- **Advanced Export Options**: 
+  - Export charts as PNG images
+  - Export charts as SVG vector graphics
+  - Copy charts directly to clipboard
+  - Export data as CSV or JSON formats
+- **Intuitive Interface**: Export controls positioned in top-right corner for easy access
 
 ### ⚙️ Customizable Settings
 - Enable/disable real-time updates for better performance
-- Toggle advanced statistics display
-- Customizable date formats
-- Individual feature toggles for file history and word count tracking
+- Toggle advanced statistics display (cumulative data)
+- Customizable chart types and date formats
+- Real-time status bar updates
 
 ## Usage
 
-### Accessing Analytics
+### Accessing Chart Analytics
 1. **Ribbon Icon**: Click the bar chart icon in the left ribbon
-2. **Command Palette**: Use "Open Notes Analytics" command
-3. **Specific Views**: 
-   - "Show File Creation History" - View file creation timeline
-   - "Show Word Count Analytics" - View word count trends
+2. **Command Palette**: Use "Open Notes Analytics" or "Show Chart Visualizations" commands
 
-### Analytics Views
-
-#### File Creation History
-Shows a chronological view of when your files were created, grouped by date. Each entry displays:
-- File path
-- Creation date
-- Estimated word count
-
-#### Word Count Analytics
-Provides comprehensive statistical analysis of your writing patterns with:
-- Selectable time frames (daily, monthly, yearly)
-- Files created per period
-- Total words written in each period
-- Average words per file
-- Cumulative word count progression (when advanced stats are enabled)
-- Writing productivity trends over time
+### Chart Features
+Interactive data visualizations featuring:
+- **Line Charts**: Perfect for tracking trends and patterns over time
+- **Bar Charts**: Ideal for comparing data across different periods
+- **Dynamic Controls**: Switch between chart types, time frames, and metrics instantly
+- **Multiple Metrics**: Visualize total words, files created, average words per file, or cumulative progress
+- **Responsive Design**: Charts adapt to your theme and display preferences
+- **Export Ready**: High-quality canvas-based charts for clear visualization
 
 ### Status Bar
 The status bar shows real-time information:
@@ -66,10 +52,9 @@ The status bar shows real-time information:
 
 Configure the plugin behavior in Settings > Notes Analytics:
 
-- **Show File Creation History**: Enable/disable file creation tracking
-- **Show Word Count Tracking**: Enable/disable word count analytics
 - **Enable Real-time Updates**: Update status bar and analytics automatically when files change
-- **Show Advanced Statistics**: Display cumulative word counts, writing streaks, and additional analytics
+- **Show Advanced Statistics**: Display cumulative word counts and additional analytics
+- **Default Chart Type**: Set your preferred chart type (line or bar charts)
 - **Date Format**: Customize date display format (uses moment.js format)
 
 ## Installation
@@ -124,7 +109,7 @@ npm run build
 ## Technical Details
 
 ### Word Count Calculation
-The plugin reads file contents to provide accurate word count calculation. For performance optimization, the status bar uses an estimation based on file size, while detailed analytics use exact word counts from file contents.
+The plugin reads file contents to provide accurate word count calculation for chart data. The status bar uses an optimized estimation based on file size for performance.
 
 ### Data Sources
 - File creation times from Obsidian's file system API
@@ -135,20 +120,32 @@ The plugin reads file contents to provide accurate word count calculation. For p
 - Debounced updates to prevent excessive calculations
 - Optional real-time updates that can be disabled for better performance
 - Efficient caching of analytics data
+- Hardware-accelerated canvas rendering for smooth chart performance
+
+### Chart Technology
+- Native HTML5 Canvas-based rendering for optimal performance
+- No external dependencies - lightweight and fast
+- Responsive design that adapts to theme colors
+- Smooth animations and interactive controls
 
 ## Roadmap
 
 Planned features for future releases:
-- [ ] Chart visualizations for analytics data (line charts, bar charts)
-- [ ] Export analytics data to CSV/JSON formats
-- [ ] More detailed writing streak tracking with streak history
-- [ ] Integration with daily notes for better insights
-- [ ] Custom date ranges for analytics (e.g., last 30 days, custom periods)
+- [x] Chart visualizations for analytics data (line charts, bar charts) ✅ **COMPLETED**
+- [x] Enhanced chart types (pie charts, area charts, scatter plots) ✅ **COMPLETED**
+- [x] Chart export functionality (PNG, SVG, PDF formats) ✅ **COMPLETED**
+- [x] Export analytics data to CSV/JSON formats ✅ **COMPLETED**
+- [x] Custom date ranges for analytics (e.g., last 30 days, custom periods) ✅ **COMPLETED**
+- [x] Code refactoring and modularization ✅ **COMPLETED**
+- [x] More detailed writing streak tracking with streak history ✅ **COMPLETED**
+- [x] Interactive chart tooltips and data point details ✅ **COMPLETED**
 - [ ] File size analytics and growth tracking
 - [ ] Tags and folder-based analytics filtering
+- [ ] Integration with daily notes for better insights
 - [ ] Writing goals and progress tracking
 - [ ] Comparison views (this month vs last month)
 - [ ] Heatmap calendar view of writing activity
+- [ ] Chart animation and transition effects
 
 ## Contributing
 
