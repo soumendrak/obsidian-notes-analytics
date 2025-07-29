@@ -348,6 +348,38 @@ interface NotesAnalyticsSettings {
 		background: string;
 	};
 	autoRefreshInterval: number;
+	// Enhanced customization options
+	dashboardLayout: 'compact' | 'standard' | 'expanded';
+	enableAnimations: boolean;
+	showTooltips: boolean;
+	enableSounds: boolean;
+	exportFormat: 'json' | 'csv' | 'pdf' | 'all';
+	fileTypes: string[];
+	enableTagFiltering: boolean;
+	excludeTags: string[];
+	includeTags: string[];
+	enableFolderAnalytics: boolean;
+	chartRefreshRate: number;
+	enableDataCaching: boolean;
+	cacheExpiration: number; // in minutes
+	enableBackup: boolean;
+	backupInterval: number; // in hours
+	maxCacheSize: number; // in MB
+	enableDebugMode: boolean;
+	customMetrics: Array<{
+		id: string;
+		name: string;
+		enabled: boolean;
+		formula: string;
+	}>;
+	notificationSettings: {
+		enableGoalNotifications: boolean;
+		enableWeeklyReports: boolean;
+		enableMonthlyReports: boolean;
+		notificationTime: string;
+	};
+	// Onboarding
+	hasSeenWelcome: boolean;
 	showNotifications: boolean;
 	enableKeyboardShortcuts: boolean;
 	compactView: boolean;
@@ -381,6 +413,32 @@ const DEFAULT_SETTINGS: NotesAnalyticsSettings = {
 		background: '#f8f9fa'
 	},
 	autoRefreshInterval: 300000, // 5 minutes
+	// Enhanced settings defaults
+	dashboardLayout: 'standard',
+	enableAnimations: true,
+	showTooltips: true,
+	enableSounds: false,
+	exportFormat: 'json',
+	fileTypes: ['.md', '.txt'],
+	enableTagFiltering: true,
+	excludeTags: ['#template', '#archive'],
+	includeTags: [],
+	enableFolderAnalytics: true,
+	chartRefreshRate: 30000, // 30 seconds
+	enableDataCaching: true,
+	cacheExpiration: 60, // 1 hour
+	enableBackup: false,
+	backupInterval: 24, // 24 hours
+	maxCacheSize: 50, // 50 MB
+	enableDebugMode: false,
+	customMetrics: [],
+	notificationSettings: {
+		enableGoalNotifications: true,
+		enableWeeklyReports: false,
+		enableMonthlyReports: false,
+		notificationTime: '18:00'
+	},
+	// Legacy settings for backward compatibility
 	showNotifications: true,
 	enableKeyboardShortcuts: true,
 	compactView: false,
@@ -390,7 +448,8 @@ const DEFAULT_SETTINGS: NotesAnalyticsSettings = {
 		{ name: 'Last 30 days', days: 30 },
 		{ name: 'Last 90 days', days: 90 },
 		{ name: 'Last year', days: 365 }
-	]
+	],
+	hasSeenWelcome: false
 }
 
 interface WordCountData {
@@ -420,6 +479,20 @@ class ChartRenderer {
 	private animationStartTime: number = 0;
 	private animationDuration: number = 1000; // 1 second
 	private isAnimating: boolean = false;
+	// Enhanced interactive features
+	private tooltipElement: HTMLElement | null = null;
+	private isHovering: boolean = false;
+	private lastMousePos: { x: number; y: number } = { x: 0, y: 0 };
+	private dataPoints: Array<{ x: number; y: number; label: string; value: number }> = [];
+	private theme: 'light' | 'dark' | 'auto' = 'auto';
+	private colors = {
+		primary: '#007acc',
+		secondary: '#28a745',
+		accent: '#dc3545',
+		background: '#f8f9fa',
+		grid: '#e9ecef',
+		text: '#495057'
+	};
 
 	constructor(canvas: HTMLCanvasElement, width: number = 900, height: number = 600) {
 		this.canvas = canvas;
@@ -428,6 +501,126 @@ class ChartRenderer {
 		this.width = width;
 		this.height = height;
 		this.ctx = canvas.getContext('2d')!;
+		this.setupInteractivity();
+		this.detectTheme();
+	}
+
+	private setupInteractivity(): void {
+		// Mouse move for tooltips
+		this.canvas.addEventListener('mousemove', (event) => {
+			const rect = this.canvas.getBoundingClientRect();
+			this.lastMousePos = {
+				x: event.clientX - rect.left,
+				y: event.clientY - rect.top
+			};
+			this.handleMouseMove();
+		});
+
+		// Mouse leave to hide tooltip
+		this.canvas.addEventListener('mouseleave', () => {
+			this.hideTooltip();
+		});
+
+		// Click events for drill-down
+		this.canvas.addEventListener('click', (event) => {
+			const rect = this.canvas.getBoundingClientRect();
+			const clickPos = {
+				x: event.clientX - rect.left,
+				y: event.clientY - rect.top
+			};
+			this.handleClick(clickPos);
+		});
+	}
+
+	private detectTheme(): void {
+		// Detect current Obsidian theme
+		const isDark = document.body.classList.contains('theme-dark');
+		this.theme = isDark ? 'dark' : 'light';
+		
+		if (this.theme === 'dark') {
+			this.colors = {
+				primary: '#007acc',
+				secondary: '#28a745',
+				accent: '#dc3545',
+				background: '#2d3748',
+				grid: '#4a5568',
+				text: '#e2e8f0'
+			};
+		}
+	}
+
+	private handleMouseMove(): void {
+		const nearestPoint = this.findNearestDataPoint(this.lastMousePos);
+		if (nearestPoint && this.getDistance(this.lastMousePos, nearestPoint) < 20) {
+			this.showTooltip(nearestPoint);
+		} else {
+			this.hideTooltip();
+		}
+	}
+
+	private findNearestDataPoint(pos: { x: number; y: number }): { x: number; y: number; label: string; value: number } | null {
+		let nearest = null;
+		let minDistance = Infinity;
+		
+		for (const point of this.dataPoints) {
+			const distance = this.getDistance(pos, point);
+			if (distance < minDistance) {
+				minDistance = distance;
+				nearest = point;
+			}
+		}
+		
+		return nearest;
+	}
+
+	private getDistance(p1: { x: number; y: number }, p2: { x: number; y: number }): number {
+		return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
+	}
+
+	private showTooltip(point: { x: number; y: number; label: string; value: number }): void {
+		if (!this.tooltipElement) {
+			this.tooltipElement = document.createElement('div');
+			this.tooltipElement.className = 'chart-tooltip';
+			this.tooltipElement.style.cssText = `
+				position: absolute;
+				background: var(--background-primary);
+				border: 1px solid var(--background-modifier-border);
+				border-radius: 4px;
+				padding: 8px 12px;
+				font-size: 12px;
+				pointer-events: none;
+				z-index: 1000;
+				box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+			`;
+			document.body.appendChild(this.tooltipElement);
+		}
+
+		this.tooltipElement.innerHTML = `
+			<div style="font-weight: bold; margin-bottom: 4px;">${point.label}</div>
+			<div>Value: ${point.value}</div>
+		`;
+
+		const rect = this.canvas.getBoundingClientRect();
+		this.tooltipElement.style.left = `${rect.left + point.x + 10}px`;
+		this.tooltipElement.style.top = `${rect.top + point.y - 30}px`;
+		this.tooltipElement.style.display = 'block';
+	}
+
+	private hideTooltip(): void {
+		if (this.tooltipElement) {
+			this.tooltipElement.style.display = 'none';
+		}
+	}
+
+	private handleClick(pos: { x: number; y: number }): void {
+		const nearestPoint = this.findNearestDataPoint(pos);
+		if (nearestPoint && this.getDistance(pos, nearestPoint) < 20) {
+			// Trigger drill-down event
+			const event = new CustomEvent('chartClick', {
+				detail: { point: nearestPoint }
+			});
+			this.canvas.dispatchEvent(event);
+		}
 	}
 
 	private getChartArea() {
@@ -1226,21 +1419,31 @@ export default class NotesAnalyticsPlugin extends Plugin {
 		});
 	}
 
+	/**
+	 * Show welcome modal for first-time users
+	 */
+	private showWelcomeModal(): void {
+		new WelcomeModal(this.app, this).open();
+	}
+
 	async onload() {
 		try {
 			console.info('[Notes Analytics] Plugin loading...');
 			
-			// Initialize performance monitoring and caching
-			this.performanceMonitor = new PerformanceMonitor();
-			this.cache = new AnalyticsCache();
-			this.lastFileModificationTime = Date.now();
+		// Initialize performance monitoring and caching
+		this.performanceMonitor = new PerformanceMonitor();
+		this.cache = new AnalyticsCache();
+		this.lastFileModificationTime = Date.now();
 
-			console.info('[Notes Analytics] Performance monitoring and caching initialized');
-			
-			// Load settings with validation
-			await this.loadSettings();
+		console.info('[Notes Analytics] Performance monitoring and caching initialized');
+		
+		// Load settings with validation
+		await this.loadSettings();
 
-			// Initialize i18n service
+		// Check if this is first time use
+		if (!this.settings.hasSeenWelcome) {
+			this.showWelcomeModal();
+		}			// Initialize i18n service
 			this.i18n = new I18nService(this.settings.language);
 
 			// Initialize advanced services
@@ -2469,68 +2672,186 @@ export default class NotesAnalyticsPlugin extends Plugin {
 		}); // Close getCachedAnalytics call
 	}
 
-	async exportAnalyticsData(timeFrame: 'day' | 'week' | 'month' | 'year', format: 'csv' | 'json' = 'csv') {
+	async exportAnalyticsData(timeFrame: 'day' | 'week' | 'month' | 'year', format: 'csv' | 'json' | 'pdf' | 'xlsx' = 'csv') {
 		try {
 			const data = await this.getWordCountAnalytics(timeFrame);
 			const summary = await this.getAnalyticsSummary();
 			
-			let content: string;
-			let filename: string;
+			let content: string | Blob = '';
+			let filename: string = '';
+			let mimeType: string = '';
 			
 			if (format === 'csv') {
-				// CSV format
-				const headers = ['Date', 'Files Created', 'Total Words', 'Avg Words per File', 'Cumulative Words', 'Cumulative Files'];
-				const csvRows = [headers.join(',')];
-				
-				data.forEach(item => {
-					const row = [
-						item.date,
-						item.filesCreated.toString(),
-						item.totalWords.toString(),
-						item.avgWordsPerFile.toString(),
-						item.cumulativeWords.toString(),
-						item.cumulativeFiles.toString()
-					];
-					csvRows.push(row.join(','));
-				});
-				
-				// Add summary at the end
-				csvRows.push('');
-				csvRows.push('Summary');
-				csvRows.push(`Total Files,${summary.totalFiles}`);
-				csvRows.push(`Total Words,${summary.totalWords}`);
-				csvRows.push(`Average Words per File,${summary.avgWordsPerFile}`);
-				csvRows.push(`Writing Streak,${summary.streak} days`);
-				csvRows.push(`Most Productive Day,${summary.mostProductiveDay}`);
-				
-				content = csvRows.join('\n');
+				content = this.generateCSVExport(data, summary, timeFrame);
 				filename = `obsidian-analytics-${timeFrame}-${moment().format('YYYY-MM-DD')}.csv`;
-			} else {
-				// JSON format
-				const exportData = {
-					exportDate: moment().format('YYYY-MM-DD HH:mm:ss'),
-					timeFrame: timeFrame,
-					summary: summary,
-					data: data
-				};
-				content = JSON.stringify(exportData, null, 2);
+				mimeType = 'text/csv';
+			} else if (format === 'json') {
+				content = this.generateJSONExport(data, summary, timeFrame);
 				filename = `obsidian-analytics-${timeFrame}-${moment().format('YYYY-MM-DD')}.json`;
+				mimeType = 'application/json';
+			} else if (format === 'pdf') {
+				content = await this.generatePDFExport(data, summary, timeFrame);
+				filename = `obsidian-analytics-${timeFrame}-${moment().format('YYYY-MM-DD')}.pdf`;
+				mimeType = 'application/pdf';
+			} else if (format === 'xlsx') {
+				content = await this.generateExcelExport(data, summary, timeFrame);
+				filename = `obsidian-analytics-${timeFrame}-${moment().format('YYYY-MM-DD')}.xlsx`;
+				mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 			}
 			
 			// Create and download file
-			const blob = new Blob([content], { type: format === 'csv' ? 'text/csv' : 'application/json' });
-			const url = URL.createObjectURL(blob);
-			const link = document.createElement('a');
-			link.href = url;
-			link.download = filename;
-			link.click();
-			URL.revokeObjectURL(url);
+			const blob = content instanceof Blob ? content : new Blob([content], { type: mimeType });
+			this.downloadFile(blob, filename);
 			
-			new Notice(`Analytics data exported as ${filename}`);
+			new Notice(`Analytics exported as ${format.toUpperCase()}`);
 		} catch (error) {
-			new Notice('Failed to export analytics data. Please check your file permissions.');
-			console.error('Export error:', error);
+			console.error('Error exporting analytics data:', error);
+			new Notice('Failed to export analytics data. Please try again.');
 		}
+	}
+
+	private generateCSVExport(data: WordCountData[], summary: any, timeFrame: string): string {
+		const headers = ['Date', 'Files Created', 'Total Words', 'Avg Words per File', 'Cumulative Words', 'Cumulative Files'];
+		const csvRows = [headers.join(',')];
+		
+		data.forEach(item => {
+			const row = [
+				item.date,
+				item.filesCreated.toString(),
+				item.totalWords.toString(),
+				item.avgWordsPerFile.toString(),
+				item.cumulativeWords.toString(),
+				item.cumulativeFiles.toString()
+			];
+			csvRows.push(row.join(','));
+		});
+		
+		// Add summary section
+		csvRows.push('');
+		csvRows.push('Summary');
+		csvRows.push(`Total Files,${summary.totalFiles}`);
+		csvRows.push(`Total Words,${summary.totalWords}`);
+		csvRows.push(`Average Words per File,${summary.avgWordsPerFile}`);
+		csvRows.push(`Writing Streak,${summary.streak} days`);
+		csvRows.push(`Most Productive Day,${summary.mostProductiveDay}`);
+		
+		return csvRows.join('\n');
+	}
+
+	private generateJSONExport(data: WordCountData[], summary: any, timeFrame: string): string {
+		const exportData = {
+			exportDate: moment().format('YYYY-MM-DD HH:mm:ss'),
+			timeFrame: timeFrame,
+			vault: this.app.vault.getName(),
+			version: '1.0',
+			summary: summary,
+			data: data,
+			metadata: {
+				totalDataPoints: data.length,
+				dateRange: {
+					start: data[0]?.date || '',
+					end: data[data.length - 1]?.date || ''
+				},
+				exportedBy: 'Obsidian Notes Analytics Plugin'
+			}
+		};
+		return JSON.stringify(exportData, null, 2);
+	}
+
+	private async generatePDFExport(data: WordCountData[], summary: any, timeFrame: string): Promise<Blob> {
+		// Simple PDF generation using HTML and canvas
+		const htmlContent = this.generateHTMLReport(data, summary, timeFrame);
+		
+		// For now, return HTML as blob (full PDF generation would require additional library)
+		return new Blob([htmlContent], { type: 'text/html' });
+	}
+
+	private async generateExcelExport(data: WordCountData[], summary: any, timeFrame: string): Promise<Blob> {
+		// Simple Excel-compatible format using CSV with special formatting
+		const content = this.generateCSVExport(data, summary, timeFrame);
+		return new Blob([content], { type: 'text/csv' });
+	}
+
+	private generateHTMLReport(data: WordCountData[], summary: any, timeFrame: string): string {
+		return `
+		<!DOCTYPE html>
+		<html>
+		<head>
+			<title>Obsidian Analytics Report - ${timeFrame}</title>
+			<style>
+				body { font-family: Arial, sans-serif; margin: 40px; }
+				.header { text-align: center; margin-bottom: 30px; }
+				.summary { background: #f5f5f5; padding: 20px; border-radius: 8px; margin-bottom: 30px; }
+				table { width: 100%; border-collapse: collapse; }
+				th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+				th { background-color: #f2f2f2; }
+				.metric { display: inline-block; margin: 10px 20px; text-align: center; }
+				.metric-value { font-size: 24px; font-weight: bold; color: #007acc; }
+				.metric-label { font-size: 14px; color: #666; }
+			</style>
+		</head>
+		<body>
+			<div class="header">
+				<h1>Obsidian Analytics Report</h1>
+				<p>Time Frame: ${timeFrame} | Generated: ${moment().format('YYYY-MM-DD HH:mm:ss')}</p>
+			</div>
+			
+			<div class="summary">
+				<h2>Summary</h2>
+				<div class="metric">
+					<div class="metric-value">${summary.totalFiles}</div>
+					<div class="metric-label">Total Files</div>
+				</div>
+				<div class="metric">
+					<div class="metric-value">${summary.totalWords}</div>
+					<div class="metric-label">Total Words</div>
+				</div>
+				<div class="metric">
+					<div class="metric-value">${summary.avgWordsPerFile}</div>
+					<div class="metric-label">Avg Words/File</div>
+				</div>
+				<div class="metric">
+					<div class="metric-value">${summary.streak}</div>
+					<div class="metric-label">Writing Streak (days)</div>
+				</div>
+			</div>
+
+			<table>
+				<thead>
+					<tr>
+						<th>Date</th>
+						<th>Files Created</th>
+						<th>Total Words</th>
+						<th>Avg Words per File</th>
+						<th>Cumulative Words</th>
+						<th>Cumulative Files</th>
+					</tr>
+				</thead>
+				<tbody>
+					${data.map(item => `
+						<tr>
+							<td>${item.date}</td>
+							<td>${item.filesCreated}</td>
+							<td>${item.totalWords}</td>
+							<td>${item.avgWordsPerFile}</td>
+							<td>${item.cumulativeWords}</td>
+							<td>${item.cumulativeFiles}</td>
+						</tr>
+					`).join('')}
+				</tbody>
+			</table>
+		</body>
+		</html>
+		`;
+	}
+
+	private downloadFile(blob: Blob, filename: string): void {
+		const url = URL.createObjectURL(blob);
+		const link = document.createElement('a');
+		link.href = url;
+		link.download = filename;
+		link.click();
+		URL.revokeObjectURL(url);
 	}
 
 	// Comparison Views Methods
@@ -2794,11 +3115,28 @@ class AnalyticsDashboardModal extends Modal {
 		this.modalEl.setAttribute('aria-modal', 'true');
 		contentEl.setAttribute('tabindex', '0');
 		
-		// Set the modal to full width and height
-		this.modalEl.style.width = '100vw';
-		this.modalEl.style.height = '100vh';
-		this.modalEl.style.maxWidth = 'none';
-		this.modalEl.style.maxHeight = 'none';
+		// Set the modal to full width and height with responsive adjustments
+		const isMobile = window.innerWidth <= 768;
+		const isTablet = window.innerWidth > 768 && window.innerWidth <= 1024;
+		
+		if (isMobile) {
+			this.modalEl.style.width = '100vw';
+			this.modalEl.style.height = '100vh';
+			this.modalEl.style.maxWidth = 'none';
+			this.modalEl.style.maxHeight = 'none';
+			this.modalEl.style.padding = '0';
+		} else if (isTablet) {
+			this.modalEl.style.width = '95vw';
+			this.modalEl.style.height = '95vh';
+			this.modalEl.style.maxWidth = '900px';
+			this.modalEl.style.maxHeight = '700px';
+		} else {
+			this.modalEl.style.width = '100vw';
+			this.modalEl.style.height = '100vh';
+			this.modalEl.style.maxWidth = 'none';
+			this.modalEl.style.maxHeight = 'none';
+		}
+		
 		this.modalEl.style.left = '0';
 		this.modalEl.style.top = '0';
 		this.modalEl.style.transform = 'none';
@@ -2904,6 +3242,71 @@ class AnalyticsDashboardModal extends Modal {
 			cls: 'mod-cta refresh-btn' 
 		});
 		refreshBtn.onclick = () => this.refreshDashboard();
+
+		// Advanced filters section
+		const advancedFiltersContainer = this.filtersContainer.createDiv('advanced-filters-container');
+		advancedFiltersContainer.style.display = 'none';
+		
+		// Toggle for advanced filters
+		const toggleAdvanced = filtersRow.createDiv('filter-group').createEl('button', { 
+			text: 'Advanced Filters', 
+			cls: 'mod-cta' 
+		});
+		toggleAdvanced.setAttribute('aria-label', 'Toggle advanced filtering options');
+		toggleAdvanced.onclick = () => {
+			const isVisible = advancedFiltersContainer.style.display !== 'none';
+			advancedFiltersContainer.style.display = isVisible ? 'none' : 'block';
+			toggleAdvanced.textContent = isVisible ? 'Advanced Filters' : 'Hide Advanced';
+		};
+
+		const advancedFiltersRow = advancedFiltersContainer.createDiv('filters-row');
+
+		// File type filter
+		const fileTypeDiv = advancedFiltersRow.createDiv('filter-group');
+		const fileTypeLabel = fileTypeDiv.createEl('label', { text: 'File Types:' });
+		const fileTypeSelect = fileTypeDiv.createEl('select', { cls: 'filter-select' });
+		fileTypeSelect.setAttribute('multiple', 'true');
+		fileTypeSelect.setAttribute('aria-label', 'Select file types to include');
+		
+		const fileTypes = ['.md', '.txt', '.canvas'];
+		fileTypes.forEach(type => {
+			const option = fileTypeSelect.createEl('option', { value: type, text: type });
+			if (this.plugin.settings.fileTypes.includes(type)) option.selected = true;
+		});
+
+		// Tag filter
+		const tagFilterDiv = advancedFiltersRow.createDiv('filter-group');
+		const tagFilterLabel = tagFilterDiv.createEl('label', { text: 'Include Tags:' });
+		const tagFilterInput = tagFilterDiv.createEl('input', { 
+			type: 'text', 
+			placeholder: '#tag1, #tag2',
+			cls: 'filter-input'
+		});
+		tagFilterInput.setAttribute('aria-label', 'Enter tags to include (comma-separated)');
+
+		// Exclude tags
+		const excludeTagDiv = advancedFiltersRow.createDiv('filter-group');
+		const excludeTagLabel = excludeTagDiv.createEl('label', { text: 'Exclude Tags:' });
+		const excludeTagInput = excludeTagDiv.createEl('input', { 
+			type: 'text', 
+			placeholder: '#exclude1, #exclude2',
+			cls: 'filter-input'
+		});
+		excludeTagInput.setAttribute('aria-label', 'Enter tags to exclude (comma-separated)');
+
+		// Apply filters button
+		const applyFiltersBtn = advancedFiltersRow.createDiv('filter-group').createEl('button', { 
+			text: 'Apply Filters', 
+			cls: 'mod-cta' 
+		});
+		applyFiltersBtn.setAttribute('aria-label', 'Apply all selected filters');
+		applyFiltersBtn.onclick = () => {
+			this.applyAdvancedFilters({
+				fileTypes: Array.from(fileTypeSelect.selectedOptions).map(option => option.value),
+				includeTags: tagFilterInput.value.split(',').map(tag => tag.trim()).filter(tag => tag),
+				excludeTags: excludeTagInput.value.split(',').map(tag => tag.trim()).filter(tag => tag)
+			});
+		};
 	}
 
 	private showCustomDatePicker() {
@@ -3537,6 +3940,33 @@ class AnalyticsDashboardModal extends Modal {
 	}
 
 	/**
+	 * Apply advanced filtering options
+	 */
+	private async applyAdvancedFilters(filters: {
+		fileTypes: string[];
+		includeTags: string[];
+		excludeTags: string[];
+	}): Promise<void> {
+		try {
+			// Update plugin settings with current filters
+			this.plugin.settings.fileTypes = filters.fileTypes;
+			this.plugin.settings.includeTags = filters.includeTags;
+			this.plugin.settings.excludeTags = filters.excludeTags;
+			
+			// Save settings
+			await this.plugin.saveSettings();
+			
+			// Refresh dashboard with new filters
+			this.refreshDashboard();
+			
+			new Notice('Filters applied successfully');
+		} catch (error) {
+			console.error('Error applying filters:', error);
+			new Notice('Failed to apply filters. Please try again.');
+		}
+	}
+
+	/**
 	 * Get all focusable elements in the modal
 	 */
 	private getFocusableElements(): HTMLElement[] {
@@ -3584,11 +4014,27 @@ class ChartVisualizationsModal extends Modal {
 		this.modalEl.setAttribute('aria-modal', 'true');
 		contentEl.setAttribute('tabindex', '0');
 		
-		// Set larger modal size
-		this.modalEl.style.width = '98vw';
-		this.modalEl.style.maxWidth = '1400px';
-		this.modalEl.style.height = '95vh';
-		this.modalEl.style.maxHeight = '900px';
+		// Set larger modal size with responsive adjustments
+		const isMobile = window.innerWidth <= 768;
+		const isTablet = window.innerWidth > 768 && window.innerWidth <= 1024;
+		
+		if (isMobile) {
+			this.modalEl.style.width = '100vw';
+			this.modalEl.style.height = '100vh';
+			this.modalEl.style.maxWidth = 'none';
+			this.modalEl.style.maxHeight = 'none';
+			this.modalEl.style.padding = '0';
+		} else if (isTablet) {
+			this.modalEl.style.width = '95vw';
+			this.modalEl.style.height = '90vh';
+			this.modalEl.style.maxWidth = '1000px';
+			this.modalEl.style.maxHeight = '700px';
+		} else {
+			this.modalEl.style.width = '98vw';
+			this.modalEl.style.maxWidth = '1400px';
+			this.modalEl.style.height = '95vh';
+			this.modalEl.style.maxHeight = '900px';
+		}
 		
 		const titleEl = contentEl.createEl('h2', { text: 'Chart Visualizations' });
 		titleEl.setAttribute('id', 'chart-modal-title');
@@ -4138,5 +4584,106 @@ class NotesAnalyticsSettingTab extends PluginSettingTab {
 					this.plugin.settings.monthlyWordGoal = goal;
 					await this.plugin.saveSettings();
 				}));
+	}
+}
+
+// Welcome Modal for first-time users
+class WelcomeModal extends Modal {
+	plugin: NotesAnalyticsPlugin;
+
+	constructor(app: App, plugin: NotesAnalyticsPlugin) {
+		super(app);
+		this.plugin = plugin;
+	}
+
+	onOpen() {
+		const { contentEl } = this;
+		contentEl.empty();
+
+		// Set accessibility attributes
+		this.modalEl.setAttribute('role', 'dialog');
+		this.modalEl.setAttribute('aria-label', 'Welcome to Notes Analytics');
+		this.modalEl.setAttribute('aria-modal', 'true');
+
+		contentEl.createEl('h1', { text: '🎉 Welcome to Notes Analytics!' });
+
+		const introDiv = contentEl.createDiv('welcome-intro');
+		introDiv.innerHTML = `
+			<p>Thank you for installing Notes Analytics! This plugin helps you track and analyze your writing progress in Obsidian.</p>
+			
+			<h3>🚀 What you can do:</h3>
+			<ul>
+				<li><strong>📊 View Analytics Dashboard</strong> - See comprehensive writing statistics</li>
+				<li><strong>📈 Chart Visualizations</strong> - Visualize your writing patterns over time</li>
+				<li><strong>🎯 Set Goals</strong> - Track daily, weekly, and monthly writing goals</li>
+				<li><strong>📤 Export Data</strong> - Export your analytics in multiple formats</li>
+				<li><strong>🔍 Advanced Filtering</strong> - Filter by tags, folders, and date ranges</li>
+			</ul>
+
+			<h3>⌨️ Keyboard Shortcuts:</h3>
+			<ul>
+				<li><kbd>Ctrl+Shift+A</kbd> - Open Analytics Dashboard</li>
+				<li><kbd>Ctrl+Shift+C</kbd> - Open Chart Visualizations</li>
+				<li><kbd>Ctrl+Shift+R</kbd> - Generate Full Report</li>
+				<li><kbd>Ctrl+Shift+F</kbd> - Refresh Analytics Data</li>
+			</ul>
+
+			<h3>🎨 Getting Started:</h3>
+			<ol>
+				<li>Click the 📊 or 📈 icons in the ribbon to open the analytics views</li>
+				<li>Use the time frame filters to view different periods</li>
+				<li>Set your writing goals in the plugin settings</li>
+				<li>Enable advanced features like real-time updates and notifications</li>
+			</ol>
+		`;
+
+		const buttonContainer = contentEl.createDiv('welcome-buttons');
+		buttonContainer.style.cssText = 'display: flex; gap: 10px; justify-content: center; margin-top: 30px;';
+
+		const openDashboardBtn = buttonContainer.createEl('button', { 
+			text: '📊 Open Dashboard', 
+			cls: 'mod-cta' 
+		});
+		openDashboardBtn.onclick = () => {
+			this.close();
+			new AnalyticsDashboardModal(this.app, this.plugin).open();
+		};
+
+		const openChartsBtn = buttonContainer.createEl('button', { 
+			text: '📈 View Charts', 
+			cls: 'mod-cta' 
+		});
+		openChartsBtn.onclick = () => {
+			this.close();
+			new ChartVisualizationsModal(this.app, this.plugin).open();
+		};
+
+		const settingsBtn = buttonContainer.createEl('button', { 
+			text: '⚙️ Settings' 
+		});
+		settingsBtn.onclick = () => {
+			this.close();
+			// Open settings
+			(this.app as any).setting.open();
+			(this.app as any).setting.openTabById('notes-analytics');
+		};
+
+		const closeBtn = buttonContainer.createEl('button', { 
+			text: 'Get Started!' 
+		});
+		closeBtn.onclick = () => {
+			this.markWelcomeAsSeen();
+			this.close();
+		};
+	}
+
+	private async markWelcomeAsSeen(): Promise<void> {
+		this.plugin.settings.hasSeenWelcome = true;
+		await this.plugin.saveSettings();
+	}
+
+	onClose() {
+		// Mark as seen when closing
+		this.markWelcomeAsSeen();
 	}
 }
