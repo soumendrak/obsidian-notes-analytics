@@ -180,6 +180,10 @@ Planned features for future releases:
 
 Contributions are welcome! Please feel free to submit issues, feature requests, or pull requests.
 
+## Sponsor
+
+If this project helps you, consider [sponsoring my work on GitHub](https://github.com/sponsors/soumendrak). Your support helps fund maintenance, documentation, and continued development.
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
